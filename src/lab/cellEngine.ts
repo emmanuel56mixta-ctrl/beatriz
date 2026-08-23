@@ -1,4 +1,4 @@
-export type LabStage = "BASE" | "ROW1" | "ROW2" | "ROW3" | "TRIPLE" | "TETRIS";
+export type LabStage = "BASE" | "ROW1" | "ROW2" | "ROW3" | "BUILD" | "TRIPLE" | "TETRIS";
 export type RowRecipe = "I" | "T";
 
 type StemKey = "cityDrums" | "cityBass" | "cityOther" | "cityVocals" | "matrodaDrums" | "zeleoDrums";
@@ -46,6 +46,12 @@ const SOURCES: Record<StemKey, SourceSpec> = {
 
 const L = (key: StemKey, bar: number, gain: number): LayerCell => ({ key, bar, gain });
 
+const BUILD_SCENE: Scene = {
+  name: "BUILD · real roll candidate → CLUB",
+  bars: 4,
+  layers: [L("matrodaDrums", 56, 0.86), L("cityOther", 80, 0.32)],
+};
+
 function scenes(stage: LabStage, recipe: RowRecipe): Scene[] {
   const straight = recipe === "I";
   switch (stage) {
@@ -84,6 +90,8 @@ function scenes(stage: LabStage, recipe: RowRecipe): Scene[] {
             { name: "ROW3 T · chopped motif enters", bars: 8, layers: [L("cityDrums", 64, 0.72), L("cityBass", 64, 0.46), L("cityOther", 88, 0.40), L("cityVocals", 48, 0.15)] },
             { name: "ROW3 T · chopped motif response", bars: 8, layers: [L("cityDrums", 72, 0.72), L("cityBass", 72, 0.47), L("cityOther", 96, 0.41), L("cityVocals", 64, 0.16)] },
           ];
+    case "BUILD":
+      return [BUILD_SCENE];
     case "TRIPLE":
       return straight
         ? [
@@ -149,6 +157,9 @@ export class MusicalCellsEngine {
     audio.preload = "metadata";
     audio.crossOrigin = "anonymous";
     audio.setAttribute("playsinline", "");
+    const media = audio as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
+    media.preservesPitch = true;
+    media.webkitPreservesPitch = true;
     audio.volume = 0;
     return audio;
   }
@@ -162,9 +173,7 @@ export class MusicalCellsEngine {
     if (this.state.loading || this.state.ready) return;
     this.emit({ loading: true, error: null });
     try {
-      await Promise.all(
-        [...this.decks.values()].flat().map((audio) => this.waitMetadata(audio)),
-      );
+      await Promise.all([...this.decks.values()].flat().map((audio) => this.waitMetadata(audio)));
       this.emit({ loading: false, ready: true });
     } catch (error) {
       this.emit({ loading: false, error: error instanceof Error ? error.message : "No se pudieron cargar las células." });
@@ -200,7 +209,7 @@ export class MusicalCellsEngine {
   async setRecipe(recipe: RowRecipe) {
     if (this.state.recipe === recipe) return;
     this.emit({ recipe });
-    if (this.state.running && this.state.stage !== "BASE") {
+    if (this.state.running && this.state.stage !== "BASE" && this.state.stage !== "BUILD") {
       this.sceneCursor = 0;
       await this.playStageScene();
     }
@@ -210,8 +219,12 @@ export class MusicalCellsEngine {
     if (!this.state.running) return;
     this.emit({ stage });
     this.sceneCursor = 0;
+    if (stage === "BUILD") {
+      await this.playScene(BUILD_SCENE, "TRIPLE");
+      return;
+    }
     if (stage === "TETRIS") {
-      await this.playScene(TETRIS_BREAK, true);
+      await this.playScene(TETRIS_BREAK);
       return;
     }
     await this.playStageScene();
@@ -221,10 +234,10 @@ export class MusicalCellsEngine {
     const list = scenes(this.state.stage, this.state.recipe);
     const scene = list[this.sceneCursor % list.length]!;
     this.sceneCursor = (this.sceneCursor + 1) % list.length;
-    await this.playScene(scene, false);
+    await this.playScene(scene);
   }
 
-  private async playScene(scene: Scene, oneShotBreak: boolean) {
+  private async playScene(scene: Scene, nextStage?: LabStage) {
     const id = ++this.transitionId;
     if (this.timer != null) window.clearTimeout(this.timer);
     this.timer = null;
@@ -244,12 +257,11 @@ export class MusicalCellsEngine {
     const nextDelay = Math.max(250, durationMs - 180);
     this.timer = window.setTimeout(() => {
       if (id !== this.transitionId || !this.state.running) return;
-      if (oneShotBreak) {
+      if (nextStage) {
+        this.emit({ stage: nextStage });
         this.sceneCursor = 0;
-        void this.playStageScene();
-      } else {
-        void this.playStageScene();
       }
+      void this.playStageScene();
     }, nextDelay);
   }
 
@@ -272,7 +284,7 @@ export class MusicalCellsEngine {
 
     try {
       await next.play();
-    } catch (error) {
+    } catch {
       this.emit({ error: `El navegador bloqueó ${layer.key}. Pulsa START AUDIO otra vez.` });
       return;
     }
