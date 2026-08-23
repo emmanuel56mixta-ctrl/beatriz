@@ -15,10 +15,12 @@ export type Track = {
 
 const cleanBase = (value: string) => value.replace(/\/$/, "");
 const appBase = cleanBase(import.meta.env.BASE_URL || "");
-const stemsEnv = (import.meta.env.VITE_BEATRIS_STEMS_URL as string | undefined)?.trim();
-export const REMOTE_STEMS_CONFIGURED = Boolean(stemsEnv);
-export const STEMS_BASE = cleanBase(stemsEnv || `${appBase}/audio/stems`);
-const stem = (path: string) => `${STEMS_BASE}/${path}`;
+
+// v0.10 preview reads only from the same-origin Vercel Function. The browser
+// never receives a Blob token or a private blob-storage URL.
+export const REMOTE_STEMS_CONFIGURED = true;
+export const STEMS_BASE = `${appBase}/api/stem`;
+const stem = (path: string) => `${STEMS_BASE}?path=${encodeURIComponent(`stems/${path}`)}`;
 
 export const FX = {
   impact: `${appBase}/audio/fx/impact.mp3`,
