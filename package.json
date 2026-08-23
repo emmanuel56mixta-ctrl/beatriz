@@ -1,9 +1,9 @@
 {
   "name": "beatris",
-  "version": "0.20.1",
+  "version": "0.20.4",
   "private": true,
   "type": "module",
-  "description": "Beatris v0.20 core House instrument experiment.",
+  "description": "Beatris v0.20.4 construction-driven House instrument experiment.",
   "license": "MIT",
   "engines": {
     "node": ">=20"
