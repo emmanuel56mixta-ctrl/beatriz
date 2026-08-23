@@ -17,7 +17,7 @@ export class StemEngine {
   arrangement: Arrangement = "intro";
   private master: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private analyserData: Uint8Array | null = null;
+  private analyserData: Uint8Array<ArrayBuffer> | null = null;
   private buffers = new Map<string, AudioBuffer>();
   private nodes = new Map<StemRole, StemNodes>();
   private timer: number | null = null;
