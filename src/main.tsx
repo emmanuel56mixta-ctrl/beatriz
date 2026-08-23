@@ -1,12 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { AudioLabBuilderV308 } from "@/components/lab/AudioLabBuilderV308";
+import { AudioLabBuilderV310 } from "@/components/lab/AudioLabBuilderV310";
 import "@/console-v307.css";
 import "@/console-v308.css";
 import "@/console-v309.css";
+import "@/console-v310.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AudioLabBuilderV308 />
+    <AudioLabBuilderV310 />
   </StrictMode>,
 );
