@@ -39,7 +39,7 @@ export function BeatrisApp() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div><p className="eyebrow">HOUSE DIRECTOR · {REMOTE_STEMS_CONFIGURED ? "REAL STEMS" : "DEMO FALLBACK"}</p><h1>BEATRIS <i>//</i> HOUSE</h1></div>
+        <div><p className="eyebrow">HOUSE DIRECTOR · {REMOTE_STEMS_CONFIGURED ? "REAL STEMS · PHRASE LOCK" : "DEMO FALLBACK"}</p><h1>BEATRIS <i>//</i> HOUSE</h1></div>
         <div className="transport"><b>{h?.bpm ?? 125} BPM</b><span>BAR {h?.bar ?? 1} · BEAT {h?.beat ?? 1}</span><em>{(h?.arrangement ?? "intro").toUpperCase()}</em></div>
         <div className="topActions">
           <button onClick={() => { const s=sessionRef.current;if(!s)return;s.setMuted(!s.muted);setMuted(!s.muted); }}>{muted ? "UNMUTE" : "MUTE"}</button>
@@ -60,9 +60,9 @@ export function BeatrisApp() {
             {h?.flash && playing ? <div className="flash">{h.flash}</div> : null}
             {mode === "title" ? (
               <div className="overlay"><div className="startCard">
-                <span className="stamp">v0.10 · {REMOTE_STEMS_CONFIGURED ? "REAL STEM DIRECTOR" : "REMOTE-STEM READY"}</span>
+                <span className="stamp">v0.11 · {REMOTE_STEMS_CONFIGURED ? "GAME-DRIVEN PHRASES" : "REMOTE-STEM READY"}</span>
                 <h2>EL BEAT SOBREVIVE.</h2>
-                <p>La pila controla la tensión. DRUMS, BASS, MUSIC y VOCALS entran por etapas; limpiar filas no baja el nivel musical. El DROP espera al uno.</p>
+                <p>La canción ya no avanza sola: queda bloqueada en frases de 8 compases. La pila desbloquea nuevas frases y capas; limpiar filas no baja el nivel musical. El DROP espera al uno.</p>
                 {!REMOTE_STEMS_CONFIGURED ? <p className="notice">Los stems privados aún no están conectados: esta preview usa una demo Web Audio audible.</p> : null}
                 <div className="tracks">{TRACKS.map(t => <button key={t.id} className={trackId===t.id?"on":""} onClick={()=>setTrackId(t.id)}><b>{t.no}</b><span>{t.title}<small>{t.bpm} BPM · {t.stemCount}/4 STEMS</small></span></button>)}</div>
                 <button className="start" disabled={loading} onClick={()=>void start()}>{loading ? "LOADING SET…" : "START SET"}</button>
