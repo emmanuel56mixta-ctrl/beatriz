@@ -10,7 +10,7 @@ const LAYERS: { key: keyof Hud["layers"]; label: string }[] = [
 const fmt = (n: number) => String(Math.max(0, Math.floor(n))).padStart(6, "0");
 
 export function BeatrisApp() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const [hud, setHud] = useState<Hud | null>(null);
   const [mode, setMode] = useState<Mode>("title");
@@ -73,7 +73,7 @@ export function BeatrisApp() {
             {mode === "over" ? <div className="overlay"><div className="pause"><span>SET OVER</span><h2>{fmt(h?.score ?? 0)}</h2><button onClick={()=>sessionRef.current?.restart()}>RUN IT BACK</button></div></div> : null}
           </div>
           <div className="touch">
-            {([['left','←'],['rotCCW','↶'],['rotCW','↷'],['right','→'],['soft','↓'],['hard','DROP'],['hold','HOLD']] as const).map(([a,l]) => <button key={a} className={a==='hard'?"hard":""} onPointerDown={e=>{e.preventDefault();sessionRef.current?.input.press(a);}} onPointerUp={e=>{e.preventDefault();if(a==='left'||a==='right'||a==='soft')sessionRef.current?.input.release(a);}}>{l}</button>)}
+            {([['left','←'],['rotCCW','↶'],['rotCW','↷'],['right','→'],['soft','↓'],['hard','DROP'],['hold','HOLD']] as const).map(([a,l]) => <button key={a} className={a==='hard'?"hard":""} onPointerDown={()=>sessionRef.current?.input.press(a)} onPointerUp={()=>{if(a==='left'||a==='right'||a==='soft')sessionRef.current?.input.release(a);}}>{l}</button>)}
           </div>
         </section>
 
