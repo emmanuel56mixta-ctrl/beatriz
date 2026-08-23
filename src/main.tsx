@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { AudioLab } from "@/components/lab/AudioLab";
+import { AudioLabQuarry } from "@/components/lab/AudioLabQuarry";
 import "@/lab.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AudioLab />
+    <AudioLabQuarry />
   </StrictMode>,
 );
