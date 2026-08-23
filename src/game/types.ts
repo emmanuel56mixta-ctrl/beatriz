@@ -14,7 +14,17 @@ export type ActivePiece = { type: PieceId; x: number; y: number; rot: number; la
 
 export type GameEvent =
   | { kind: "lock"; piece: PieceId; onBeat: boolean; onTheOne: boolean; tspin: boolean }
-  | { kind: "clear"; lines: number; combo: number; perfect: boolean; tspin: boolean; b2b: boolean; clearedRows: number[] }
+  | {
+      kind: "clear";
+      lines: number;
+      combo: number;
+      perfect: boolean;
+      tspin: boolean;
+      b2b: boolean;
+      clearedRows: number[];
+      /** Piece sequence across every completed row, left-to-right, captured before deletion. */
+      rowPatterns?: PieceId[][];
+    }
   | { kind: "spawn"; piece: PieceId }
   | { kind: "hold"; piece: PieceId }
   | { kind: "move"; dx: number }
