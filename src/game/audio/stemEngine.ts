@@ -1,12 +1,15 @@
 import type { Arrangement, LayerGains, MusicClock, PowerKind } from "../types";
 import { heightToLevel, MUSIC_LEVEL_NAMES } from "../types";
-import { TRACKS, trackById, type StemRole, type Track } from "./library";
+import { TRACKS, trackById, type SceneId, type StemRole, type Track } from "./library";
 
-const ROLES: StemRole[] = ["drums", "bass", "other", "vocals"];
-const gainKey: Record<StemRole, keyof LayerGains> = { drums: "drums", bass: "bass", other: "music", vocals: "vocals" };
+const ROLES: StemRole[] = ["drums", "bass", "vocals"];
 const clamp = (n: number, a = 0, b = 1) => Math.max(a, Math.min(b, n));
-type StemNodes = { source: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode };
+type StemNode = { source: AudioBufferSourceNode; gain: GainNode };
+type ClipGroup = { sceneId: SceneId; nodes: StemNode[]; endAt: number };
 type Pending = { kind: PowerKind; label: string };
+type SceneTransition = { sceneId: SceneId; when: number };
+
+const SCENE_BY_LEVEL: SceneId[] = ["foundation", "tension", "drop"];
 
 export class StemEngine {
   ctx: AudioContext | null = null;
@@ -17,38 +20,52 @@ export class StemEngine {
   arrangement: Arrangement = "intro";
 
   private master: GainNode | null = null;
+  private sceneBus: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private analyserData: Uint8Array<ArrayBuffer> | null = null;
   private buffers = new Map<string, AudioBuffer>();
-  private nodes = new Map<StemRole, StemNodes>();
+  private groups: ClipGroup[] = [];
   private timer: number | null = null;
   private started = false;
   private paused = false;
   private startAt = 0;
-  private userVolume = 0.78;
+  private userVolume = 0.70;
   private muted = false;
-  private pending: Pending | null = null;
-  private boostUntil = 0;
-  private dropUntil = 0;
-  private flashUntil = 0;
-  private breakUntil = 0;
   private initPromise: Promise<void> | null = null;
-  private currentSourcePhrase = 0;
-  private queuedSourcePhrase: number | null = null;
-  private lastPhraseBoundary = -1; // stores the last game bar used for a section change
+  private currentScene: SceneId = "foundation";
+  private transition: SceneTransition | null = null;
+  private nextCycleAt = 0;
+  private pending: Pending | null = null;
 
-  async unlock() { if (this.initPromise) return this.initPromise; this.initPromise = this.init(); return this.initPromise; }
+  async unlock() {
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.init();
+    return this.initPromise;
+  }
 
   private async init() {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) throw new Error("Web Audio no disponible");
+
     this.ctx = new Ctor({ latencyHint: "interactive" });
+    this.sceneBus = this.ctx.createGain();
     this.master = this.ctx.createGain();
-    const comp = this.ctx.createDynamicsCompressor();
-    comp.threshold.value = -12; comp.ratio.value = 3.2; comp.attack.value = 0.004; comp.release.value = 0.2;
-    this.analyser = this.ctx.createAnalyser(); this.analyser.fftSize = 128;
+
+    // Peak limiter only. The previous -12 dB compressor was constantly working
+    // and made mids/pumping more aggressive.
+    const limiter = this.ctx.createDynamicsCompressor();
+    limiter.threshold.value = -1;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.08;
+
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 128;
     this.analyserData = new Uint8Array(this.analyser.frequencyBinCount);
-    this.master.connect(comp).connect(this.analyser).connect(this.ctx.destination);
+
+    this.sceneBus.connect(this.master).connect(limiter).connect(this.analyser).connect(this.ctx.destination);
+    this.sceneBus.gain.value = 1;
     this.applyMaster();
     await this.ctx.resume();
   }
@@ -59,6 +76,9 @@ export class StemEngine {
     this.track = trackById(id);
     this.buffers.clear();
     const ctx = this.ctx!;
+
+    // The A/B intentionally does NOT load OTHER. The external audit found the
+    // persistent 258/522 Hz drone there, so this test isolates architecture first.
     for (const role of ROLES) {
       const url = this.track.stems[role];
       if (!url) continue;
@@ -72,163 +92,279 @@ export class StemEngine {
     }
   }
 
-  private phraseSeconds() { return 8 * 4 * 60 / this.track.bpm; }
-  private sourceWindow(phraseIndex: number) {
-    const start = this.track.beatOffset + phraseIndex * this.phraseSeconds();
-    const end = Math.min(start + this.phraseSeconds(), this.track.duration - 0.03);
-    return { start: Math.max(0, start), end: Math.max(start + 0.5, end) };
+  private clipSeconds() { return 8 * 4 * 60 / this.track.bpm; }
+  private barSeconds() { return 4 * 60 / this.track.bpm; }
+  private sceneOffset(sceneId: SceneId) {
+    return this.track.beatOffset + this.track.scenes[sceneId].sourcePhrase * this.clipSeconds();
   }
 
   start() {
     if (!this.ctx || this.started) return;
-    this.started = true; this.paused = false; this.musicLevel = 0; this.boardHeight = 0; this.arrangement = "intro";
-    this.pending = null; this.boostUntil = 0; this.dropUntil = 0; this.flashUntil = 0; this.breakUntil = 0;
-    this.currentSourcePhrase = this.track.phraseMap[0]; this.queuedSourcePhrase = null; this.lastPhraseBoundary = -1;
-    const when = this.ctx.currentTime + 0.08;
+    this.started = true;
+    this.paused = false;
+    this.musicLevel = 0;
+    this.boardHeight = 0;
+    this.arrangement = "intro";
+    this.currentScene = "foundation";
+    this.transition = null;
+    this.pending = null;
+
+    const when = this.ctx.currentTime + 0.14;
     this.startAt = when;
-    this.spinSegment(when, this.currentSourcePhrase, true);
-    this.applyMix();
-    this.timer = window.setInterval(() => this.tick(), 30);
+    this.scheduleClip("foundation", when, 0.035);
+    this.nextCycleAt = when + this.clipSeconds();
+    this.timer = window.setInterval(() => this.tick(), 20);
   }
 
-  private spinSegment(when: number, phraseIndex: number, initial = false) {
+  private scheduleClip(sceneId: SceneId, when: number, fadeIn = 0.025) {
     const ctx = this.ctx!;
-    const old = this.nodes;
-    const next = new Map<StemRole, StemNodes>();
-    const { start, end } = this.sourceWindow(phraseIndex);
+    const bus = this.sceneBus!;
+    const spec = this.track.scenes[sceneId];
+    const offset = this.sceneOffset(sceneId);
+    const requested = this.clipSeconds();
+    const nodes: StemNode[] = [];
+    let groupEnd = when + requested;
 
     for (const role of ROLES) {
-      const url = this.track.stems[role]; if (!url) continue;
-      const buffer = this.buffers.get(url); if (!buffer) continue;
-      const source = ctx.createBufferSource(); source.buffer = buffer; source.loop = true; source.loopStart = start; source.loopEnd = Math.min(end, buffer.duration - 0.01);
-      const gain = ctx.createGain(); gain.gain.value = 0.0001;
-      const filter = ctx.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = 18000; filter.Q.value = 0.45;
-      source.connect(gain).connect(filter).connect(this.master!);
-      source.start(when, Math.min(start, Math.max(0, buffer.duration - 0.05)));
-      next.set(role, { source, gain, filter });
+      const target = spec.gains[role] ?? 0;
+      const url = this.track.stems[role];
+      if (!url || target <= 0) continue;
+      const buffer = this.buffers.get(url);
+      if (!buffer) continue;
+
+      const available = Math.max(0, buffer.duration - offset - 0.03);
+      const duration = Math.min(requested, available);
+      if (duration < 0.5) continue;
+      groupEnd = Math.min(groupEnd, when + duration);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      source.connect(gain).connect(bus);
+
+      const end = when + duration;
+      const fadeOut = Math.min(0.035, duration / 4);
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.linearRampToValueAtTime(target, when + Math.min(fadeIn, duration / 4));
+      gain.gain.setValueAtTime(target, Math.max(when + fadeIn, end - fadeOut));
+      gain.gain.linearRampToValueAtTime(0.0001, end);
+
+      source.start(when, offset, duration);
+      try { source.stop(end + 0.01); } catch {}
+      nodes.push({ source, gain });
     }
 
-    this.nodes = next;
-    this.currentSourcePhrase = phraseIndex;
-    this.applyMix(when);
+    this.groups.push({ sceneId, nodes, endAt: groupEnd + 0.02 });
+  }
 
-    if (!initial) {
-      for (const node of old.values()) {
+  private fadeOutExisting(when: number) {
+    for (const group of this.groups) {
+      if (group.endAt <= when) continue;
+      for (const node of group.nodes) {
         node.gain.gain.cancelScheduledValues(when);
-        node.gain.gain.setTargetAtTime(0.0001, when, 0.025);
-        try { node.source.stop(when + 0.12); } catch {}
+        node.gain.gain.setTargetAtTime(0.0001, when, 0.018);
+        try { node.source.stop(when + 0.09); } catch {}
       }
-    } else {
-      for (const node of old.values()) { try { node.source.stop(); } catch {} }
+      group.endAt = Math.min(group.endAt, when + 0.10);
     }
   }
 
-  private stopNodes() { for (const n of this.nodes.values()) { try { n.source.stop(); } catch {} } this.nodes.clear(); }
-  stop() { if (this.timer != null) clearInterval(this.timer); this.timer = null; this.stopNodes(); this.started = false; this.paused = false; }
-  pause() { if (!this.ctx || !this.started || this.paused) return; this.paused = true; if (this.timer != null) clearInterval(this.timer); this.timer = null; void this.ctx.suspend(); }
-  resume() { if (!this.ctx || !this.started || !this.paused) return; this.paused = false; void this.ctx.resume().then(() => { this.timer = window.setInterval(() => this.tick(), 30); }); }
-  dispose() { this.stop(); void this.ctx?.close(); this.ctx = null; this.initPromise = null; this.buffers.clear(); }
+  private stopNodes() {
+    for (const group of this.groups) for (const node of group.nodes) {
+      try { node.source.stop(); } catch {}
+    }
+    this.groups = [];
+  }
+
+  stop() {
+    if (this.timer != null) clearInterval(this.timer);
+    this.timer = null;
+    this.stopNodes();
+    this.started = false;
+    this.paused = false;
+    this.transition = null;
+    this.pending = null;
+  }
+
+  pause() {
+    if (!this.ctx || !this.started || this.paused) return;
+    this.paused = true;
+    if (this.timer != null) clearInterval(this.timer);
+    this.timer = null;
+    void this.ctx.suspend();
+  }
+
+  resume() {
+    if (!this.ctx || !this.started || !this.paused) return;
+    this.paused = false;
+    void this.ctx.resume().then(() => { this.timer = window.setInterval(() => this.tick(), 20); });
+  }
+
+  dispose() {
+    this.stop();
+    void this.ctx?.close();
+    this.ctx = null;
+    this.initPromise = null;
+    this.buffers.clear();
+  }
 
   setVolume(v: number) { this.userVolume = clamp(v); this.applyMaster(); }
   setMuted(v: boolean) { this.muted = v; this.applyMaster(); }
-  private applyMaster() { if (!this.ctx || !this.master) return; this.master.gain.setTargetAtTime(this.muted ? 0.0001 : this.userVolume ** 2, this.ctx.currentTime, 0.03); }
-
-  setBoardHeight(rows: number) {
-    this.boardHeight = clamp(rows / 20, 0, 1) * 100;
-    const next = heightToLevel(this.boardHeight);
-    if (next <= this.musicLevel) return;
-
-    this.musicLevel = next;
-    this.queuedSourcePhrase = this.track.phraseMap[next] ?? this.currentSourcePhrase;
-    if (next >= 5) this.arrangement = "build";
-    else if (next > 0) this.arrangement = "groove";
-    if (next >= 6 && !this.pending) this.request("drop", true);
-    this.applyMix();
+  private applyMaster() {
+    if (!this.ctx || !this.master) return;
+    const target = this.muted ? 0.0001 : this.userVolume * 0.72;
+    this.master.gain.setTargetAtTime(target, this.ctx.currentTime, 0.025);
   }
 
-  request(kind: PowerKind, _auto = false) {
+  private nextBarTime() {
+    const ctx = this.ctx!;
+    const now = ctx.currentTime;
+    if (now < this.startAt) return this.startAt;
+    const bar = this.barSeconds();
+    const elapsed = now - this.startAt;
+    const nextBar = Math.floor(elapsed / bar) + 1;
+    return this.startAt + nextBar * bar;
+  }
+
+  private requestScene(sceneId: SceneId, reason: string) {
+    if (!this.ctx || !this.started) return false;
+    if (sceneId === this.currentScene && !this.transition) return true;
+    if (this.transition) return true;
+
+    const when = this.nextBarTime();
+    this.fadeOutExisting(when);
+    this.scheduleClip(sceneId, when, 0.060);
+    this.nextCycleAt = when + this.clipSeconds();
+    this.transition = { sceneId, when };
+    this.pending = { kind: sceneId === "drop" ? "drop" : "switch", label: `${reason} · NEXT BAR` };
+    return true;
+  }
+
+  private clearPulse(amount: number) {
+    if (!this.ctx || !this.sceneBus || !this.started) return;
+    const now = this.ctx.currentTime;
+    const low = amount >= 4 ? 0.22 : amount >= 2 ? 0.42 : 0.62;
+    const g = this.sceneBus.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(Math.max(0.2, g.value), now);
+    g.linearRampToValueAtTime(low, now + 0.035);
+    g.exponentialRampToValueAtTime(1, now + 0.24);
+  }
+
+  setBoardHeight(rows: number) {
+    const previous = this.boardHeight;
+    const nextPct = clamp(rows / 20, 0, 1) * 100;
+    this.boardHeight = nextPct;
+
+    // A clear that materially lowers the stack now has immediate audible feedback,
+    // even when it does not cross a scene threshold.
+    if (this.started && nextPct < previous - 3) this.clearPulse(previous - nextPct > 12 ? 4 : 1);
+
+    const nextLevel = heightToLevel(nextPct);
+    if (nextLevel === this.musicLevel) return;
+    this.musicLevel = nextLevel;
+    const scene = SCENE_BY_LEVEL[nextLevel] ?? "drop";
+    this.requestScene(scene, `BOARD → ${MUSIC_LEVEL_NAMES[nextLevel] ?? scene.toUpperCase()}`);
+  }
+
+  request(kind: PowerKind) {
     if (!this.started) return false;
-    const labels: Record<PowerKind,string> = { flash:"FLASH", filter:"FILTER", boost:"BOOST", switch:"SWITCH", drop:"DROP" };
-    this.pending = { kind, label: `${labels[kind]} ARMED` };
+    if (kind === "drop") return this.requestScene("drop", "POWER DROP");
+    if (kind === "boost") return this.requestScene("tension", "POWER TENSION");
+    if (kind === "switch") return this.requestScene("foundation", "POWER RESET");
+    // FILTER is deliberately no longer a 700 Hz low-pass: that isolated the
+    // exact 517–565 Hz region called out by the audit. FLASH/FILTER are now
+    // short rhythmic gates with no resonant tonal emphasis.
+    this.clearPulse(kind === "filter" ? 2 : 1);
     return true;
   }
 
   private tick() {
     if (!this.ctx || !this.started || this.paused) return;
+    const now = this.ctx.currentTime;
     const p = this.position();
     this.onStep?.(p.step);
 
-    // The source track is NOT allowed to progress on its own. It stays inside an
-    // 8-bar phrase until the board raises the persistent music level. Once armed,
-    // the new phrase starts on the next bar so gameplay feedback stays immediate.
-    if (this.queuedSourcePhrase != null && p.step === 0 && p.frac < 0.34 && p.bar !== this.lastPhraseBoundary) {
-      this.lastPhraseBoundary = p.bar;
-      const nextPhrase = this.queuedSourcePhrase;
-      this.queuedSourcePhrase = null;
-      if (nextPhrase !== this.currentSourcePhrase) this.spinSegment(this.ctx.currentTime, nextPhrase);
+    if (this.transition && now >= this.transition.when) {
+      this.currentScene = this.transition.sceneId;
+      this.arrangement = this.currentScene === "foundation" ? "intro" : this.currentScene === "tension" ? "build" : "drop";
+      this.transition = null;
+      this.pending = null;
     }
 
-    if (this.pending && p.step === 0 && p.frac < 0.3) {
-      const kind = this.pending.kind; this.pending = null; const now = this.ctx.currentTime;
-      if (kind === "flash") this.flashUntil = now + 60 / this.track.bpm / 2;
-      if (kind === "boost") this.boostUntil = now + 8 * 4 * 60 / this.track.bpm;
-      if (kind === "filter") for (const n of this.nodes.values()) { n.filter.frequency.cancelScheduledValues(now); n.filter.frequency.setValueAtTime(700, now); n.filter.frequency.exponentialRampToValueAtTime(18000, now + 4*4*60/this.track.bpm); }
-      if (kind === "switch") { this.arrangement = "break"; this.breakUntil = now + 4 * 4 * 60 / this.track.bpm; this.spinSegment(now, this.track.breakPhrase); }
-      if (kind === "drop") { this.arrangement = "drop"; this.dropUntil = now + 8*4*60/this.track.bpm; this.spinSegment(now, this.track.dropPhrase); }
-      this.applyMix();
+    // Repeat the currently selected scene as discrete finite clips. There is no
+    // AudioBufferSourceNode.loop and therefore no raw loopStart/loopEnd click.
+    if (!this.transition && now + 0.22 >= this.nextCycleAt) {
+      this.scheduleClip(this.currentScene, this.nextCycleAt, 0.025);
+      this.nextCycleAt += this.clipSeconds();
     }
 
-    if (this.arrangement === "drop" && this.ctx.currentTime > this.dropUntil) {
-      this.arrangement = "groove";
-      this.queuedSourcePhrase = this.track.phraseMap[this.musicLevel] ?? this.currentSourcePhrase;
-      this.applyMix();
-    }
-    if (this.arrangement === "break" && this.ctx.currentTime > this.breakUntil) {
-      this.arrangement = this.musicLevel >= 5 ? "build" : "groove";
-      this.queuedSourcePhrase = this.track.phraseMap[this.musicLevel] ?? this.currentSourcePhrase;
-      this.applyMix();
-    }
-    if (this.ctx.currentTime > this.flashUntil) this.applyMix();
+    this.groups = this.groups.filter((g) => g.endAt > now - 0.5);
   }
 
-  private targetGains(): LayerGains {
-    const level = this.musicLevel;
-    const drop = this.arrangement === "drop";
-    const brk = this.arrangement === "break";
-    const boost = Boolean(this.ctx && this.ctx.currentTime < this.boostUntil);
-    let g: LayerGains;
-
-    if (brk) g = { drums: 0.08, bass: 0.06, music: 0.68, vocals: 0.52 };
-    else if (drop) g = { drums: 1, bass: 0.96, music: 0.88, vocals: 0.68 };
-    else if (level === 0) g = { drums: 0.62, bass: 0, music: 0, vocals: 0 };
-    else if (level === 1) g = { drums: 0.70, bass: 0.56, music: 0, vocals: 0 };
-    else if (level === 2) g = { drums: 0.80, bass: 0.66, music: 0.13, vocals: 0 };
-    else if (level === 3) g = { drums: 0.87, bass: 0.73, music: 0.38, vocals: 0 };
-    else if (level === 4) g = { drums: 0.92, bass: 0.78, music: 0.56, vocals: 0.22 };
-    else g = { drums: 0.68, bass: 0.54, music: 0.72, vocals: 0.38 };
-
-    if (!this.track.stems.bass && level >= 1 && this.track.stems.other) g.music = Math.max(g.music, 0.18);
-    if (this.track.stemCount === 1 && this.track.stems.other) g.music = Math.max(g.music, 0.5);
-    if (boost) { g.drums = Math.min(1, g.drums + 0.12); g.bass = Math.min(1, g.bass + 0.12); }
-    return g;
+  private sceneGains(): LayerGains {
+    const spec = this.track.scenes[this.currentScene];
+    return {
+      drums: spec.gains.drums ?? 0,
+      bass: spec.gains.bass ?? 0,
+      music: 0,
+      vocals: spec.gains.vocals ?? 0,
+    };
   }
 
-  private applyMix(at?: number) {
-    if (!this.ctx) return;
-    const g = this.targetGains(); const now = at ?? this.ctx.currentTime;
-    for (const [role,n] of this.nodes) {
-      let value = g[gainKey[role]];
-      if (this.flashUntil > now) value *= 0.03;
-      n.gain.gain.setTargetAtTime(Math.max(0.0001, value), now, 0.055);
-      if (role === "drums" && this.musicLevel === 0) n.filter.frequency.setTargetAtTime(5200, now, 0.08);
-      else n.filter.frequency.setTargetAtTime(18000, now, 0.08);
-    }
+  private position() {
+    const ctx = this.ctx;
+    const beatDur = 60 / this.track.bpm;
+    const elapsed = ctx && this.started ? Math.max(0, ctx.currentTime - this.startAt) : 0;
+    const totalBeats = elapsed / beatDur;
+    const bar = Math.floor(totalBeats / 4);
+    const beat = Math.floor(totalBeats % 4);
+    const totalSteps = totalBeats * 4;
+    const step = Math.floor(totalSteps % 16);
+    const frac = totalSteps - Math.floor(totalSteps);
+    return { bar, beat, step, frac, phraseBar: bar % 8, phrase: Math.floor(bar / 8) };
   }
 
-  private currentGains(): LayerGains { const out: LayerGains = { drums:0,bass:0,music:0,vocals:0 }; for (const [role,n] of this.nodes) out[gainKey[role]] = clamp(n.gain.gain.value); return out; }
-  private position() { const ctx = this.ctx; const beatDur = 60 / this.track.bpm; const elapsed = ctx && this.started ? Math.max(0, ctx.currentTime - this.startAt) : 0; const totalBeats = elapsed / beatDur; const bar = Math.floor(totalBeats / 4); const beat = Math.floor(totalBeats % 4); const totalSteps = totalBeats * 4; const step = Math.floor(totalSteps % 16); const frac = totalSteps - Math.floor(totalSteps); return { bar, beat, step, frac, phraseBar: bar % 8, phrase: Math.floor(bar / 8) }; }
-  get phraseLabel() { return `${MUSIC_LEVEL_NAMES[this.musicLevel] ?? "FOUNDATION"} · SOURCE PHRASE ${String(this.currentSourcePhrase + 1).padStart(2,"0")}`; }
-  visual(): MusicClock { const p = this.position(); return { bpm:this.track.bpm, bar:p.bar+1, beat:p.beat+1, step:p.step, frac:p.frac, phraseBar:p.phraseBar, phrase:p.phrase, arrangement:this.arrangement, musicLevel:this.musicLevel, boardHeight:this.boardHeight, kickPulse:p.step % 4 === 0 ? 1-p.frac : 0, duck:p.step % 4 === 0 ? 1-p.frac : 0, layers:this.currentGains(), pending:this.pending, trackId:this.track.id, trackTitle:this.track.title }; }
-  waveform(): number[] { if (!this.analyser || !this.analyserData) return []; this.analyser.getByteFrequencyData(this.analyserData); return Array.from(this.analyserData); }
-  tapeStop() { if (!this.ctx || !this.master) return; const t=this.ctx.currentTime; this.master.gain.cancelScheduledValues(t); this.master.gain.setValueAtTime(Math.max(0.0001,this.master.gain.value),t); this.master.gain.exponentialRampToValueAtTime(0.0001,t+0.6); setTimeout(()=>this.stop(),650); }
+  get phraseLabel() {
+    const spec = this.track.scenes[this.currentScene];
+    const letter = this.currentScene === "foundation" ? "A" : this.currentScene === "tension" ? "B" : "C";
+    return `${spec.label} · SCENE ${letter} · SOURCE PHRASE ${String(spec.sourcePhrase + 1).padStart(2, "0")}`;
+  }
+
+  visual(): MusicClock {
+    const p = this.position();
+    return {
+      bpm: this.track.bpm,
+      bar: p.bar + 1,
+      beat: p.beat + 1,
+      step: p.step,
+      frac: p.frac,
+      phraseBar: p.phraseBar,
+      phrase: p.phrase,
+      arrangement: this.arrangement,
+      musicLevel: this.musicLevel,
+      boardHeight: this.boardHeight,
+      kickPulse: p.step % 4 === 0 ? 1 - p.frac : 0,
+      duck: p.step % 4 === 0 ? 1 - p.frac : 0,
+      layers: this.sceneGains(),
+      pending: this.pending,
+      trackId: this.track.id,
+      trackTitle: this.track.title,
+    };
+  }
+
+  waveform(): number[] {
+    if (!this.analyser || !this.analyserData) return [];
+    this.analyser.getByteFrequencyData(this.analyserData);
+    return Array.from(this.analyserData);
+  }
+
+  tapeStop() {
+    if (!this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setValueAtTime(Math.max(0.0001, this.master.gain.value), t);
+    this.master.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    setTimeout(() => this.stop(), 600);
+  }
 }
