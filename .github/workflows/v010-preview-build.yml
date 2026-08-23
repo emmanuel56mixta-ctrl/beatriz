@@ -1,0 +1,17 @@
+name: Beatris v0.10 Preview Build
+
+on:
+  push:
+    branches: [beatris-v0.10-preview]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build
