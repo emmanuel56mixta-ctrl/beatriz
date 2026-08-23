@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "generated": "2026-08-23",
+  "tracks": [
+    {
+      "id": "20-fingers-putang-ina-mo",
+      "no": "01",
+      "title": "20 FINGERS — Putang Ina Mo",
+      "bpm": 131,
+      "beatOffset": 0.3084,
+      "duration": 252.317,
+      "stems": {
+        "drums": "/audio/stems/20-fingers-putang-ina-mo/drums.mp3",
+        "other": "/audio/stems/20-fingers-putang-ina-mo/other.mp3",
+        "vocals": "/audio/stems/20-fingers-putang-ina-mo/vocals.mp3"
+      },
+      "stemCount": 3
+    },
+    {
+      "id": "city-of-dreams-alt-control-millero",
+      "no": "02",
+      "title": "City Of Dreams — Alt Control / Millero",
+      "bpm": 124,
+      "beatOffset": 0.021,
+      "duration": 360.046,
+      "stems": {
+        "drums": "/audio/stems/city-of-dreams-alt-control-millero/drums.mp3",
+        "bass": "/audio/stems/city-of-dreams-alt-control-millero/bass.mp3",
+        "other": "/audio/stems/city-of-dreams-alt-control-millero/other.mp3",
+        "vocals": "/audio/stems/city-of-dreams-alt-control-millero/vocals.mp3"
+      },
+      "stemCount": 4
+    },
+    {
+      "id": "modjo-lady-other",
+      "no": "03",
+      "title": "Modjo — Lady (other stem)",
+      "bpm": 126,
+      "beatOffset": 0.3841,
+      "duration": 221.153,
+      "stems": { "other": "/audio/stems/modjo-lady-other/other.mp3" },
+      "stemCount": 1
+    },
+    {
+      "id": "cafe-du-midi-your-house",
+      "no": "04",
+      "title": "Café Du MIDI — Your House",
+      "bpm": 122,
+      "beatOffset": 0.1295,
+      "duration": 240.17,
+      "stems": {
+        "drums": "/audio/stems/cafe-du-midi-your-house/drums.mp3",
+        "bass": "/audio/stems/cafe-du-midi-your-house/bass.mp3",
+        "other": "/audio/stems/cafe-du-midi-your-house/other.mp3",
+        "vocals": "/audio/stems/cafe-du-midi-your-house/vocals.mp3"
+      },
+      "stemCount": 4
+    },
+    {
+      "id": "zeleo-i-just-want-to-live",
+      "no": "05",
+      "title": "ZeLeo — I Just Want To Live",
+      "bpm": 125,
+      "beatOffset": 0.1344,
+      "duration": 187.899,
+      "stems": {
+        "drums": "/audio/stems/zeleo-i-just-want-to-live/drums.mp3",
+        "bass": "/audio/stems/zeleo-i-just-want-to-live/bass.mp3",
+        "other": "/audio/stems/zeleo-i-just-want-to-live/other.mp3",
+        "vocals": "/audio/stems/zeleo-i-just-want-to-live/vocals.mp3"
+      },
+      "stemCount": 4
+    },
+    {
+      "id": "bullshit-matroda-klp",
+      "no": "06",
+      "title": "Bullshit — MATRODA / KLP",
+      "bpm": 130,
+      "beatOffset": 0.0246,
+      "duration": 178.913,
+      "stems": {
+        "drums": "/audio/stems/bullshit-matroda-klp/drums.mp3",
+        "bass": "/audio/stems/bullshit-matroda-klp/bass.mp3",
+        "other": "/audio/stems/bullshit-matroda-klp/other.mp3",
+        "vocals": "/audio/stems/bullshit-matroda-klp/vocals.mp3"
+      },
+      "stemCount": 4
+    }
+  ]
+}
