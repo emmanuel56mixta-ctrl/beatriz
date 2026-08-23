@@ -35,7 +35,7 @@ export class StemEngine {
   private initPromise: Promise<void> | null = null;
   private currentSourcePhrase = 0;
   private queuedSourcePhrase: number | null = null;
-  private lastPhraseBoundary = -1;
+  private lastPhraseBoundary = -1; // stores the last game bar used for a section change
 
   async unlock() { if (this.initPromise) return this.initPromise; this.initPromise = this.init(); return this.initPromise; }
 
@@ -159,9 +159,10 @@ export class StemEngine {
     this.onStep?.(p.step);
 
     // The source track is NOT allowed to progress on its own. It stays inside an
-    // 8-bar phrase until the board raises the persistent music level.
-    if (this.queuedSourcePhrase != null && p.phraseBar === 0 && p.step === 0 && p.frac < 0.34 && p.phrase !== this.lastPhraseBoundary) {
-      this.lastPhraseBoundary = p.phrase;
+    // 8-bar phrase until the board raises the persistent music level. Once armed,
+    // the new phrase starts on the next bar so gameplay feedback stays immediate.
+    if (this.queuedSourcePhrase != null && p.step === 0 && p.frac < 0.34 && p.bar !== this.lastPhraseBoundary) {
+      this.lastPhraseBoundary = p.bar;
       const nextPhrase = this.queuedSourcePhrase;
       this.queuedSourcePhrase = null;
       if (nextPhrase !== this.currentSourcePhrase) this.spinSegment(this.ctx.currentTime, nextPhrase);
