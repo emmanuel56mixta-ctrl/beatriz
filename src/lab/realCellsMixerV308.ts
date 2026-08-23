@@ -1,4 +1,4 @@
-import { DEFAULT_MIX,cutoffHz,filterType,resonanceQ,type MixParams } from "./mixTypesV308";
+import { DEFAULT_MIX,filterWindow,resonanceQ,type MixParams } from "./mixTypesV308";
 
 export type CellId="CHORDS"|"RESPONSE"|"MOTIF"|"PERC"|"VOCAL"|"HOOK"|"CLUB"|"BUILD";
 export type CellStatus="OFF"|"ARMED"|"ON"|"DISARMING"|"BUILDING";
@@ -10,7 +10,7 @@ type SourceSpec={path:string;bpm:number;beatOffset:number};
 type CellSpec={source:SourceKey;bar:number;bars:number;gain:number};
 type CellDef={id:CellId;label:string;q:1|4|8;kind:"add"|"replace"|"build";cells:CellSpec[]};
 type Handle={source:AudioBufferSourceNode;sourceGain:GainNode};
-type Bus={filter:BiquadFilterNode;gain:GainNode;send:GainNode};
+type Bus={hpf:BiquadFilterNode;lpf:BiquadFilterNode;gain:GainNode};
 
 const BPM=124,BEAT=60/BPM,BAR=BEAT*4;
 const SOURCES:Record<SourceKey,SourceSpec>={
@@ -42,7 +42,6 @@ export class RealCellsMixerV308{
   private masterBus:GainNode|null=null;
   private output:GainNode|null=null;
   private analyser:AnalyserNode|null=null;
-  private delay:DelayNode|null=null;
   private buffers=new Map<SourceKey,AudioBuffer>();
   private buses=new Map<CellId,Bus>();
   private mix=new Map<CellId,MixParams>();
@@ -64,13 +63,12 @@ export class RealCellsMixerV308{
     const Ctor=window.AudioContext??(window as unknown as{webkitAudioContext:typeof AudioContext}).webkitAudioContext;if(!Ctor)throw new Error("Web Audio no disponible");
     const c=new Ctor({latencyHint:"interactive"});this.ctx=c;
     const master=c.createGain(),analyser=c.createAnalyser(),output=c.createGain();analyser.fftSize=512;analyser.smoothingTimeConstant=.72;output.gain.value=this.volume;master.connect(analyser).connect(output).connect(c.destination);this.masterBus=master;this.analyser=analyser;this.output=output;
-    const delay=c.createDelay(2),tone=c.createBiquadFilter(),feedback=c.createGain(),wet=c.createGain();delay.delayTime.value=BEAT*.75;tone.type="lowpass";tone.frequency.value=5200;feedback.gain.value=.24;wet.gain.value=.36;delay.connect(tone).connect(wet).connect(master);tone.connect(feedback).connect(delay);this.delay=delay;
     CELL_DEFINITIONS.forEach(d=>this.makeBus(d.id));
     const keys=[...new Set([BASE_DRUM,BASE_BASS,...CELL_DEFINITIONS.flatMap(d=>d.cells)].map(c=>c.source))];await Promise.all(keys.map(k=>this.load(k)));await c.resume();this.emit({ready:true,loading:false,message:"REAL CELLS READY"});
   }catch(e){this.emit({loading:false,error:e instanceof Error?e.message:"No se pudieron cargar las células"});}}
 
-  private makeBus(id:CellId){if(!this.ctx||!this.masterBus||!this.delay)return;const f=this.ctx.createBiquadFilter(),g=this.ctx.createGain(),send=this.ctx.createGain();f.connect(g).connect(this.masterBus);g.connect(send).connect(this.delay);const bus={filter:f,gain:g,send};this.buses.set(id,bus);this.applyBus(id,true);}
-  private applyBus(id:CellId,immediate=false){const c=this.ctx,b=this.buses.get(id),m=this.mix.get(id);if(!c||!b||!m)return;const t=c.currentTime,tc=immediate?0:.025;b.filter.type=filterType(m.mode);b.filter.frequency.setTargetAtTime(cutoffHz(m.cutoff),t,tc||.001);b.filter.Q.setTargetAtTime(resonanceQ(m.resonance),t,tc||.001);b.gain.gain.setTargetAtTime(m.gain,t,tc||.001);b.send.gain.setTargetAtTime(m.send*.42,t,tc||.001);}
+  private makeBus(id:CellId){if(!this.ctx||!this.masterBus)return;const hpf=this.ctx.createBiquadFilter(),lpf=this.ctx.createBiquadFilter(),gain=this.ctx.createGain();hpf.type="highpass";lpf.type="lowpass";hpf.connect(lpf).connect(gain).connect(this.masterBus);this.buses.set(id,{hpf,lpf,gain});this.applyBus(id,true);}
+  private applyBus(id:CellId,immediate=false){const c=this.ctx,b=this.buses.get(id),m=this.mix.get(id);if(!c||!b||!m)return;const t=c.currentTime,tc=immediate?.001:.025,{hp,lp}=filterWindow(m),q=resonanceQ(m.resonance);b.hpf.frequency.setTargetAtTime(hp,t,tc);b.lpf.frequency.setTargetAtTime(lp,t,tc);b.hpf.Q.setTargetAtTime(Math.max(.7,q*.55),t,tc);b.lpf.Q.setTargetAtTime(q,t,tc);b.gain.gain.setTargetAtTime(m.gain,t,tc);}
   setMix(id:CellId,next:MixParams){this.mix.set(id,{...next});this.applyBus(id);}
   getMix(id:CellId){return {...(this.mix.get(id)??DEFAULT_MIX)};}
 
@@ -90,7 +88,7 @@ export class RealCellsMixerV308{
   private forceDrop(when:number){const club=CELL_DEFINITIONS.find(d=>d.id==="CLUB")!,hook=CELL_DEFINITIONS.find(d=>d.id==="HOOK")!;if(this.state.layers.CLUB.status!=="ON"){this.fadeHandle(this.baseDrum,0,when,.08);this.activate(club,when);this.patch("CLUB",{status:"ON",targetBar:null});}if(this.state.layers.HOOK.status!=="ON"){this.activate(hook,when);this.patch("HOOK",{status:"ON",targetBar:null});}this.emit({message:"DROP · CLUB + HOOK"});}
 
   private startBase(cell:CellSpec,when:number){const c=this.ctx!,spec=SOURCES[cell.source],buffer=this.buffers.get(cell.source)!,source=c.createBufferSource(),g=c.createGain(),sourceBar=(60/spec.bpm)*4,offset=spec.beatOffset+cell.bar*sourceBar;source.buffer=buffer;source.playbackRate.value=BPM/spec.bpm;source.loop=true;source.loopStart=offset;source.loopEnd=Math.min(buffer.duration-.02,offset+cell.bars*sourceBar);g.gain.value=cell.gain;source.connect(g).connect(this.masterBus!);source.start(when,offset);return{source,sourceGain:g};}
-  private startCell(cell:CellSpec,id:CellId,when:number,loop:boolean){const c=this.ctx!,spec=SOURCES[cell.source],buffer=this.buffers.get(cell.source)!,source=c.createBufferSource(),sg=c.createGain(),sourceBar=(60/spec.bpm)*4,offset=spec.beatOffset+cell.bar*sourceBar;source.buffer=buffer;source.playbackRate.setValueAtTime(BPM/spec.bpm,when);source.loop=loop;if(loop){source.loopStart=offset;source.loopEnd=Math.min(buffer.duration-.02,offset+cell.bars*sourceBar);}sg.gain.value=cell.gain;source.connect(sg).connect(this.buses.get(id)!.filter);if(loop)source.start(when,offset);else source.start(when,offset,Math.min(cell.bars*sourceBar,buffer.duration-offset-.02));return{source,sourceGain:sg};}
+  private startCell(cell:CellSpec,id:CellId,when:number,loop:boolean){const c=this.ctx!,spec=SOURCES[cell.source],buffer=this.buffers.get(cell.source)!,source=c.createBufferSource(),sg=c.createGain(),sourceBar=(60/spec.bpm)*4,offset=spec.beatOffset+cell.bar*sourceBar;source.buffer=buffer;source.playbackRate.setValueAtTime(BPM/spec.bpm,when);source.loop=loop;if(loop){source.loopStart=offset;source.loopEnd=Math.min(buffer.duration-.02,offset+cell.bars*sourceBar);}sg.gain.value=cell.gain;source.connect(sg).connect(this.buses.get(id)!.hpf);if(loop)source.start(when,offset);else source.start(when,offset,Math.min(cell.bars*sourceBar,buffer.duration-offset-.02));return{source,sourceGain:sg};}
   private fadeHandle(h:Handle|null,target:number,when:number,dur:number){if(!h)return;h.sourceGain.gain.cancelScheduledValues(when);h.sourceGain.gain.setValueAtTime(Math.max(.0001,h.sourceGain.gain.value),when);h.sourceGain.gain.linearRampToValueAtTime(Math.max(.0001,target),when+dur);}
   private stopLayer(id:CellId){const hs=this.loops.get(id);hs?.forEach(h=>{try{h.source.stop();}catch{}});this.loops.delete(id);}
   private stopSources(){for(const id of [...this.loops.keys()])this.stopLayer(id);for(const h of [this.baseDrum,this.baseBass])if(h){try{h.source.stop();}catch{}}this.baseDrum=null;this.baseBass=null;}
