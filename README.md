@@ -78,3 +78,8 @@ Si un wav falta, el motor cae a síntesis.
 ## Licencia
 
 MIT. El beat es de la canción, no del tablero.
+
+## ADN Lab integrado
+Esta versión incluye el analizador local dentro del mismo repo. En macOS usa `run-beatris.command` para levantar a la vez Beatris (Vite) y el servicio de análisis local en el puerto 8765. La primera vez, para activar separación de stems, ejecuta `analyzer/install-stems.command`.
+
+El botón **ADN LAB** de la pantalla inicial permite cargar audio, detectar BPM/tonalidad/Camelot, separar stems con Demucs y guardar el último `tetrishouse-dna.json` en el navegador como perfil local.

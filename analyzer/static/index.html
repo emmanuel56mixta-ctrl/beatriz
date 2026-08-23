@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TetrisHOUSE Analyzer</title>
+<style>
+:root{--bg:#090b0e;--panel:#11151a;--line:#222a33;--text:#f4f7f9;--muted:#8d98a4;--acid:#c8ff36;--cyan:#42e8ff;--pink:#ff4fa3}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 80% 0,#182026 0,#090b0e 42%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;min-height:100vh}.wrap{max-width:1100px;margin:auto;padding:38px 20px 70px}.eyebrow{font:700 12px/1 monospace;letter-spacing:.16em;color:var(--acid);text-transform:uppercase}.hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;margin:16px 0 34px}.hero h1{font-size:clamp(42px,7vw,82px);line-height:.88;letter-spacing:-.06em;margin:0;max-width:760px}.hero p{max-width:290px;color:var(--muted);line-height:1.5}.card{background:rgba(17,21,26,.86);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 15px 70px rgba(0,0,0,.25)}.drop{border:1px dashed #394553;border-radius:18px;padding:34px;text-align:center;cursor:pointer;transition:.2s}.drop:hover,.drop.drag{border-color:var(--acid);background:#151a16}.drop input{display:none}.drop strong{display:block;font-size:22px;margin:7px}.drop span{color:var(--muted)}.switches{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}.pill{display:flex;gap:8px;align-items:center;background:#0b0e12;border:1px solid var(--line);padding:10px 13px;border-radius:999px;font-size:13px}.btn{width:100%;border:0;background:var(--acid);color:#080b08;padding:16px;border-radius:14px;font-weight:900;font-size:16px;cursor:pointer}.btn:disabled{opacity:.45;cursor:wait}.status{font-family:ui-monospace,monospace;color:var(--muted);font-size:13px;margin-top:12px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}.metric{background:#0c1014;border:1px solid var(--line);border-radius:16px;padding:17px}.metric .v{font-size:28px;font-weight:900}.metric .k{font:700 11px monospace;color:var(--muted);letter-spacing:.1em;margin-top:5px}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.section h2{font-size:18px;margin:0 0 14px}.file{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 0}.file:first-of-type{border-top:0}.file a{color:var(--cyan);text-decoration:none}.badge{font:700 10px monospace;padding:6px 8px;border-radius:999px;background:#20262d;color:#acb6c0}.dna{margin-top:16px}.dna pre{white-space:pre-wrap;word-break:break-word;max-height:330px;overflow:auto;background:#090c0f;border-radius:14px;padding:16px;color:#b9c6ce;font-size:12px}.hidden{display:none}.error{color:#ff728d}.ok{color:var(--acid)}
+@media(max-width:750px){.hero{display:block}.hero p{max-width:none}.grid{grid-template-columns:1fr 1fr}.two{grid-template-columns:1fr}.wrap{padding-top:24px}}
+</style>
+</head>
+<body><main class="wrap">
+<div class="eyebrow">tetrisHOUSE / music DNA lab</div>
+<div class="hero"><h1>Convierte canciones en ADN musical.</h1><p>Stems, BPM, tonalidad, Camelot y MIDI listos para alimentar un motor generativo.</p></div>
+<section class="card">
+<label class="drop" id="drop"><input type="file" id="file" accept="audio/*"><span>ARRASTRA UNA CANCIÓN</span><strong id="filename">MP3 · WAV · FLAC · M4A</strong><span>o toca aquí para seleccionar</span></label>
+<div class="switches"><label class="pill"><input type="checkbox" id="sep" checked> separar stems</label><label class="pill"><input type="checkbox" id="midi" checked> extraer MIDI</label></div>
+<button class="btn" id="go" disabled>ANALIZAR ADN</button><div class="status" id="status">Comprobando módulos locales…</div>
+</section>
+<div id="results" class="hidden">
+<div class="grid">
+<div class="metric"><div class="v" id="bpm">—</div><div class="k">BPM</div></div>
+<div class="metric"><div class="v" id="key">—</div><div class="k">TONALIDAD</div></div>
+<div class="metric"><div class="v" id="camelot">—</div><div class="k">CAMELOT</div></div>
+<div class="metric"><div class="v" id="duration">—</div><div class="k">DURACIÓN</div></div>
+</div>
+<div class="two"><section class="card section"><h2>STEMS</h2><div id="stems"></div></section><section class="card section"><h2>MIDI</h2><div id="midis"></div></section></div>
+<section class="card dna"><h2>TetrisHOUSE DNA</h2><div class="file"><span>JSON para el motor generativo</span><a id="dnaLink" href="#">abrir archivo ↗</a></div><pre id="dna"></pre></section>
+</div>
+</main>
+<script>
+const file=document.querySelector('#file'),drop=document.querySelector('#drop'),go=document.querySelector('#go'),status=document.querySelector('#status'),filename=document.querySelector('#filename');
+let chosen=null;
+fetch('/api/health').then(r=>r.json()).then(h=>{const missing=Object.entries(h.modules).filter(x=>!x[1]).map(x=>x[0]); status.innerHTML=missing.length?'Módulos opcionales pendientes: <b>'+missing.join(', ')+'</b>. El análisis puede funcionar parcialmente.':'<span class="ok">Motor listo.</span>';}).catch(()=>status.textContent='Servidor listo.');
+function choose(f){chosen=f;filename.textContent=f.name;go.disabled=false} file.onchange=e=>e.target.files[0]&&choose(e.target.files[0]); drop.onclick=()=>file.click(); ['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.add('drag')})); ['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.remove('drag')})); drop.addEventListener('drop',e=>e.dataTransfer.files[0]&&choose(e.dataTransfer.files[0]));
+function row(name,url,badge){return `<div class="file"><span>${name}</span>${url?`<a href="${url}" target="_blank">abrir ↗</a>`:`<span class="badge">${badge||'no disponible'}</span>`}</div>`}
+go.onclick=async()=>{if(!chosen)return;go.disabled=true;go.textContent='ANALIZANDO…';status.textContent='Leyendo BPM y tonalidad. Si activaste stems, Demucs puede tardar en CPU.';const fd=new FormData();fd.append('file',chosen);try{const q=`?separate=${document.querySelector('#sep').checked}&midi=${document.querySelector('#midi').checked}`;const r=await fetch('/api/analyze'+q,{method:'POST',body:fd});const d=await r.json();if(!r.ok)throw new Error(d.detail||'Error');document.querySelector('#results').classList.remove('hidden');bpm.textContent=d.analysis.bpm||'—';key.textContent=(d.analysis.key||'—')+(d.analysis.mode?` ${d.analysis.mode==='major'?'Maj':'min'}`:'');camelot.textContent=d.analysis.camelot||'—';duration.textContent=d.analysis.duration?`${d.analysis.duration}s`:'—';const s=d.stems.files||{};document.querySelector('#stems').innerHTML=['drums','bass','vocals','other'].map(n=>row(n,s[n],d.stems.error)).join('');const m=d.midi||{};document.querySelector('#midis').innerHTML=Object.keys(m).length?Object.entries(m).map(([n,v])=>row(n,v.midi,v.error)).join(''):row('sin MIDI',null,'desactivado');dnaLink.href=d.dna_url;document.querySelector('#dna').textContent=JSON.stringify(d.dna,null,2);status.innerHTML='<span class="ok">ADN generado.</span> Ya puedes usar el JSON como puente hacia TetrisHOUSE.';}catch(e){status.innerHTML='<span class="error">'+e.message+'</span>';}finally{go.disabled=false;go.textContent='ANALIZAR ADN';}}
+</script></body></html>
