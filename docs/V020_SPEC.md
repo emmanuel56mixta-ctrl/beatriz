@@ -144,4 +144,29 @@ It must prove one thing: **the same House instrument, played differently.**
 
 ## 10. Freeze rule
 
-Do not add hooks, song scenes, extra piece languages, more tracks, more powers or richer orchestration until `V020_ACCEPTANCE.md` passes all six tests.
+Do not add hooks, song scenes, extra piece languages, more tracks, more powers or richer orchestration until `V020_ACCEPTANCE.md` passes all required tests.
+
+## 11. Progression axis — FROZEN ADDENDUM
+
+> **Action → gesture. Board → tension. Cleared rows / level → arrangement.**
+
+Height and musical progress are opposite forces and must never be collapsed into the same fader.
+
+- Stacking = risk/tension only. It never makes the groove richer.
+- Cleared rows = musical progress. The House skin improves and never rewinds.
+- Soft/hard drop score is small gameplay score only; it never unlocks arrangement.
+- Level (every 10 cleared rows) changes the deterministic ground variant `A → A' → B → A'` without changing the four-on-the-floor skeleton.
+- Raw score must never map linearly to density.
+- Groove richness is capped. After FULL, later levels change variant rather than add more layers.
+
+Clear progression for the core experiment:
+
+| Progress | Persistent floor change |
+|---|---|
+| 0 lines | kick + clap, almost no hats, two-note bass |
+| first singles | eighth-note/offbeat hats |
+| double or ~3 lines | full bass grammar |
+| triple/combo or ~6 lines | open hat + secondary ghost/perc |
+| TETRIS or ~10 lines | FULL/B variant; no further layer stacking |
+
+The clear response is the **door**: lock tick → quantized accent/fill → on the other side the floor is permanently a little better.
