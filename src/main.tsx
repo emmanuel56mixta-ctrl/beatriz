@@ -1,12 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "@/game/coreAudioFlowEmit";
-import { Beatris } from "@/components/game/Beatris";
-import "@/styles.css";
-import "@/flow.css";
+import { AudioLab } from "@/components/lab/AudioLab";
+import "@/lab.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Beatris />
+    <AudioLab />
   </StrictMode>,
 );
