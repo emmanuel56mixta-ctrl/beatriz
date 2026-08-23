@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@/game/coreAudioFlowEmit";
 import { Beatris } from "@/components/game/Beatris";
 import "@/styles.css";
 import "@/flow.css";
