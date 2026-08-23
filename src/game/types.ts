@@ -37,8 +37,10 @@ export type Hud = {
   musicLevel: number; boardHeight: number; layers: LayerGains; pending: { kind: PowerKind; label: string } | null; trackId: string; trackTitle: string;
 };
 export const POWER_COSTS: Record<PowerKind, number> = { flash: 25, filter: 40, boost: 55, switch: 70, drop: 100 };
-export const MUSIC_LEVEL_THRESHOLDS = [0, 20, 40, 55, 70, 85, 95];
-export const MUSIC_LEVEL_NAMES = ["FOUNDATION", "BASSLINE", "GROOVE", "DRIVE", "HOOK", "BUILD", "DROP PREP"];
+
+// v0.12 A/B: three unmistakable musical states tied directly to the board.
+export const MUSIC_LEVEL_THRESHOLDS = [0, 25, 50];
+export const MUSIC_LEVEL_NAMES = ["FOUNDATION", "TENSION", "DROP"];
 export function heightToLevel(pct: number): number {
   let level = 0;
   for (let i = 0; i < MUSIC_LEVEL_THRESHOLDS.length; i++) if (pct >= MUSIC_LEVEL_THRESHOLDS[i]!) level = i;
