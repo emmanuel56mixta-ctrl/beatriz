@@ -1,12 +1,26 @@
 import { get } from "@vercel/blob";
 
 const ALLOWED = new Set([
+  "stems/20-fingers-putang-ina-mo/drums.mp3",
+  "stems/20-fingers-putang-ina-mo/other.mp3",
+  "stems/20-fingers-putang-ina-mo/vocals.mp3",
   "stems/city-of-dreams-alt-control-millero/drums.mp3",
   "stems/city-of-dreams-alt-control-millero/bass.mp3",
   "stems/city-of-dreams-alt-control-millero/other.mp3",
   "stems/city-of-dreams-alt-control-millero/vocals.mp3",
-  "stems/bullshit-matroda-klp/drums.mp3",
+  "stems/modjo-lady-other/other.mp3",
+  "stems/cafe-du-midi-your-house/drums.mp3",
+  "stems/cafe-du-midi-your-house/bass.mp3",
+  "stems/cafe-du-midi-your-house/other.mp3",
+  "stems/cafe-du-midi-your-house/vocals.mp3",
   "stems/zeleo-i-just-want-to-live/drums.mp3",
+  "stems/zeleo-i-just-want-to-live/bass.mp3",
+  "stems/zeleo-i-just-want-to-live/other.mp3",
+  "stems/zeleo-i-just-want-to-live/vocals.mp3",
+  "stems/bullshit-matroda-klp/drums.mp3",
+  "stems/bullshit-matroda-klp/bass.mp3",
+  "stems/bullshit-matroda-klp/other.mp3",
+  "stems/bullshit-matroda-klp/vocals.mp3",
 ]);
 
 function responseHeaders(result) {
@@ -26,9 +40,8 @@ function responseHeaders(result) {
 
 export default {
   async fetch(request) {
-    if (process.env.VERCEL_ENV === "production") {
-      return new Response("Not found", { status: 404 });
-    }
+    // Commercial stem quarry is preview-only. Production must never expose it.
+    if (process.env.VERCEL_ENV === "production") return new Response("Not found", { status: 404 });
     if (request.method !== "GET") {
       return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
     }
@@ -38,7 +51,10 @@ export default {
     if (!ALLOWED.has(pathname)) return new Response("Not found", { status: 404 });
 
     const storeId = process.env.BEATRIS_STEMS_STORE_ID;
-    if (!storeId) return new Response("Stem store unavailable", { status: 503 });
+    if (!storeId) {
+      console.error("BEATRIS_STEMS_STORE_ID is missing");
+      return new Response("Stem store unavailable", { status: 503 });
+    }
 
     const forwardedHeaders = {};
     const range = request.headers.get("range");
@@ -55,7 +71,10 @@ export default {
       });
       if (!result) return new Response("Not found", { status: 404 });
       if (result.statusCode === 304) {
-        return new Response(null, { status: 304, headers: { ETag: result.blob.etag || "", "Cache-Control": "private, no-cache" } });
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: result.blob.etag || "", "Cache-Control": "private, no-cache" },
+        });
       }
       const headers = responseHeaders(result);
       const partial = Boolean(result.headers.get("content-range"));
