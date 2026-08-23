@@ -1,14 +1,13 @@
-import { DEFAULT_MIX,cutoffHz,filterType,resonanceQ,type MixParams } from "./mixTypesV308";
+import { DEFAULT_MIX,filterWindow,resonanceQ,type MixParams } from "./mixTypesV308";
 
-export type ExtraId="VOCAL20"|"SHAKER"|"GHOST"|"RIDE"|"STABS"|"ARP"|"TOMFILL"|"WASH"|"RISER"|"DOWN"|"REVERSE"|"IMPACT"|"SWEEP";
-export type ExtraKind="VOCAL"|"LIVE"|"FX";
+export type ExtraId="SHAKER"|"GHOST"|"RIDE"|"STABS"|"ARP"|"TOMFILL"|"WASH"|"RISER"|"DOWN"|"REVERSE"|"IMPACT"|"SWEEP";
+export type ExtraKind="LIVE"|"FX";
 export type ExtraStatus="OFF"|"ARMED"|"ON"|"PLAYING"|"EXIT";
 export type ExtraRuntime={status:ExtraStatus;targetBar:number|null};
 export type ExtraState={ready:boolean;running:boolean;message:string;error:string|null;layers:Record<ExtraId,ExtraRuntime>};
-type Bus={filter:BiquadFilterNode;gain:GainNode;send:GainNode};
+type Bus={hpf:BiquadFilterNode;lpf:BiquadFilterNode;gain:GainNode};
 
 export const EXTRA_DEFINITIONS=[
-  {id:"VOCAL20" as const,kind:"VOCAL" as const,label:"VOCAL · 20 FINGERS",q:8 as const},
   {id:"SHAKER" as const,kind:"LIVE" as const,label:"SHAKER",q:1 as const},
   {id:"GHOST" as const,kind:"LIVE" as const,label:"GHOST CLAP",q:1 as const},
   {id:"RIDE" as const,kind:"LIVE" as const,label:"RIDE",q:4 as const},
@@ -33,12 +32,9 @@ export class PerformanceMixerV308{
   private masterBus:GainNode|null=null;
   private output:GainNode|null=null;
   private analyser:AnalyserNode|null=null;
-  private delay:DelayNode|null=null;
   private buses=new Map<ExtraId,Bus>();
   private mix=new Map<ExtraId,MixParams>();
   private noise:AudioBuffer|null=null;
-  private vocal:AudioBuffer|null=null;
-  private vocalSource:AudioBufferSourceNode|null=null;
   private startAt=0;
   private nextStep=0;
   private scheduler:number|null=null;
@@ -49,29 +45,27 @@ export class PerformanceMixerV308{
   private onState:(s:ExtraState)=>void;
   state:ExtraState={ready:false,running:false,message:"EXTRAS READY",error:null,layers:blank()};
 
-  constructor(onState:(s:ExtraState)=>void){this.onState=onState;EXTRA_DEFINITIONS.forEach(d=>this.mix.set(d.id,{...DEFAULT_MIX,gain:d.kind==="FX"?1.1:1}));}
+  constructor(onState:(s:ExtraState)=>void){this.onState=onState;EXTRA_DEFINITIONS.forEach(d=>this.mix.set(d.id,{...DEFAULT_MIX,gain:d.kind==="FX"?1.15:1}));}
   private emit(p?:Partial<ExtraState>){if(p)this.state={...this.state,...p};this.onState({...this.state,layers:{...this.state.layers}});}
   private patch(id:ExtraId,p:Partial<ExtraRuntime>){this.state={...this.state,layers:{...this.state.layers,[id]:{...this.state.layers[id],...p}}};this.emit();}
 
   async prepare(){if(this.state.ready)return;try{const Ctor=window.AudioContext??(window as unknown as{webkitAudioContext:typeof AudioContext}).webkitAudioContext;if(!Ctor)throw new Error("Web Audio no disponible");const c=new Ctor({latencyHint:"interactive"});this.ctx=c;
     const master=c.createGain(),analyser=c.createAnalyser(),output=c.createGain();analyser.fftSize=512;analyser.smoothingTimeConstant=.68;output.gain.value=this.volume;master.connect(analyser).connect(output).connect(c.destination);this.masterBus=master;this.analyser=analyser;this.output=output;
-    const delay=c.createDelay(2),tone=c.createBiquadFilter(),feedback=c.createGain(),wet=c.createGain();delay.delayTime.value=BEAT*.75;tone.type="lowpass";tone.frequency.value=6000;feedback.gain.value=.27;wet.gain.value=.42;delay.connect(tone).connect(wet).connect(master);tone.connect(feedback).connect(delay);this.delay=delay;
-    this.noise=this.makeNoise(c);EXTRA_DEFINITIONS.forEach(d=>this.makeBus(d.id));
-    const r=await fetch(`/api/stem?path=${encodeURIComponent("stems/20-fingers-putang-ina-mo/vocals.mp3")}`,{cache:"force-cache"});if(!r.ok)throw new Error(`20F vocal ${r.status}`);this.vocal=await c.decodeAudioData(await r.arrayBuffer());await c.resume();this.emit({ready:true,message:"LIVE + FX MIXER READY",error:null});
+    this.noise=this.makeNoise(c);EXTRA_DEFINITIONS.forEach(d=>this.makeBus(d.id));await c.resume();this.emit({ready:true,message:"LIVE + FX MIXER READY",error:null});
   }catch(e){this.emit({error:e instanceof Error?e.message:"Extras unavailable"});throw e;}}
 
-  private makeBus(id:ExtraId){if(!this.ctx||!this.masterBus||!this.delay)return;const f=this.ctx.createBiquadFilter(),g=this.ctx.createGain(),send=this.ctx.createGain();f.connect(g).connect(this.masterBus);g.connect(send).connect(this.delay);this.buses.set(id,{filter:f,gain:g,send});this.applyBus(id,true);}
-  private applyBus(id:ExtraId,immediate=false){const c=this.ctx,b=this.buses.get(id),m=this.mix.get(id);if(!c||!b||!m)return;const t=c.currentTime,tc=immediate?.001:.025;b.filter.type=filterType(m.mode);b.filter.frequency.setTargetAtTime(cutoffHz(m.cutoff),t,tc);b.filter.Q.setTargetAtTime(resonanceQ(m.resonance),t,tc);b.gain.gain.setTargetAtTime(m.gain,t,tc);b.send.gain.setTargetAtTime(m.send*.5,t,tc);}
+  private makeBus(id:ExtraId){if(!this.ctx||!this.masterBus)return;const hpf=this.ctx.createBiquadFilter(),lpf=this.ctx.createBiquadFilter(),gain=this.ctx.createGain();hpf.type="highpass";lpf.type="lowpass";hpf.connect(lpf).connect(gain).connect(this.masterBus);this.buses.set(id,{hpf,lpf,gain});this.applyBus(id,true);}
+  private applyBus(id:ExtraId,immediate=false){const c=this.ctx,b=this.buses.get(id),m=this.mix.get(id);if(!c||!b||!m)return;const t=c.currentTime,tc=immediate?.001:.025,{hp,lp}=filterWindow(m),q=resonanceQ(m.resonance);b.hpf.frequency.setTargetAtTime(hp,t,tc);b.lpf.frequency.setTargetAtTime(lp,t,tc);b.hpf.Q.setTargetAtTime(Math.max(.7,q*.55),t,tc);b.lpf.Q.setTargetAtTime(q,t,tc);b.gain.gain.setTargetAtTime(m.gain,t,tc);}
   setMix(id:ExtraId,next:MixParams){this.mix.set(id,{...next});this.applyBus(id);}
   getMix(id:ExtraId){return {...(this.mix.get(id)??DEFAULT_MIX)};}
-  private bus(id:ExtraId){return this.buses.get(id)!.filter;}
+  private bus(id:ExtraId){return this.buses.get(id)!.hpf;}
 
-  async start(){await this.prepare();if(!this.ctx||this.state.running)return;await this.ctx.resume();this.cancel();this.starts.clear();this.stops.clear();this.stopVocal();this.startAt=this.ctx.currentTime+.18;this.nextStep=0;this.emit({running:true,layers:blank(),message:"EXTRAS SYNCED",error:null});this.scheduler=window.setInterval(()=>this.scheduleAhead(),25);this.scheduleAhead();}
-  stop(){this.cancel();this.starts.clear();this.stops.clear();if(this.scheduler!=null)window.clearInterval(this.scheduler);this.scheduler=null;this.stopVocal();this.emit({running:false,layers:blank(),message:"EXTRAS STOPPED"});}
-  dispose(){this.stop();void this.ctx?.close();this.ctx=null;this.buses.clear();this.noise=null;this.vocal=null;}
+  async start(){await this.prepare();if(!this.ctx||this.state.running)return;await this.ctx.resume();this.cancel();this.starts.clear();this.stops.clear();this.startAt=this.ctx.currentTime+.18;this.nextStep=0;this.emit({running:true,layers:blank(),message:"EXTRAS SYNCED",error:null});this.scheduler=window.setInterval(()=>this.scheduleAhead(),25);this.scheduleAhead();}
+  stop(){this.cancel();this.starts.clear();this.stops.clear();if(this.scheduler!=null)window.clearInterval(this.scheduler);this.scheduler=null;this.emit({running:false,layers:blank(),message:"EXTRAS STOPPED"});}
+  dispose(){this.stop();void this.ctx?.close();this.ctx=null;this.buses.clear();this.noise=null;}
   setVolume(v:number){this.volume=Math.max(0,Math.min(1,v));if(this.ctx&&this.output)this.output.gain.setTargetAtTime(this.volume,this.ctx.currentTime,.02);}
 
-  toggle(id:ExtraId){if(!this.ctx||!this.state.running)return;const d=EXTRA_DEFINITIONS.find(x=>x.id===id)!,rt=this.state.layers[id];if(rt.status==="ARMED"||rt.status==="PLAYING"||rt.status==="EXIT")return;if(d.kind==="FX"){if(rt.status==="OFF")this.triggerFx(id);return;}if(d.kind==="VOCAL"){if(rt.status==="OFF")this.armVocal();return;}if(rt.status==="OFF")this.armLive(id,d.q);else if(rt.status==="ON")this.exitLive(id,d.q);}
+  toggle(id:ExtraId){if(!this.ctx||!this.state.running)return;const d=EXTRA_DEFINITIONS.find(x=>x.id===id)!,rt=this.state.layers[id];if(rt.status==="ARMED"||rt.status==="PLAYING"||rt.status==="EXIT")return;if(d.kind==="FX"){if(rt.status==="OFF")this.triggerFx(id);return;}if(rt.status==="OFF")this.armLive(id,d.q);else if(rt.status==="ON")this.exitLive(id,d.q);}
   private armLive(id:ExtraId,q:1|4|8){const bar=this.nextBoundary(q),when=this.timeForBar(bar);this.patch(id,{status:"ARMED",targetBar:bar+1});this.starts.set(id,when);this.stops.delete(id);this.at(when,()=>{if(this.state.running){this.patch(id,{status:"ON",targetBar:null});this.emit({message:`${id} ON · BAR ${bar+1}`});}});}
   private exitLive(id:ExtraId,q:1|4|8){const bar=this.nextBoundary(q),when=this.timeForBar(bar);this.patch(id,{status:"EXIT",targetBar:bar+1});this.stops.set(id,when);this.at(when+.03,()=>{this.starts.delete(id);this.stops.delete(id);this.patch(id,{status:"OFF",targetBar:null});});}
   private active(id:ExtraId,t:number){const s=this.starts.get(id);if(s==null||t<s-.001)return false;const e=this.stops.get(id);return e==null||t<e-.001;}
@@ -79,10 +73,6 @@ export class PerformanceMixerV308{
   private triggerFx(id:ExtraId){const now=this.ctx!.currentTime;let bar=this.nextBoundary(id==="SWEEP"?1:4),fire=this.timeForBar(bar),start=fire;if(id==="RISER"){start=fire-BAR;if(start<now+.08){bar+=4;fire=this.timeForBar(bar);start=fire-BAR;}}if(id==="REVERSE"){start=fire-BEAT;if(start<now+.08){bar+=4;fire=this.timeForBar(bar);start=fire-BEAT;}}this.patch(id,{status:"ARMED",targetBar:bar+1});
     if(id==="WASH")this.at(fire,()=>this.wash(fire,2,.24,id));if(id==="RISER")this.at(start,()=>this.riser(start,BAR,.30,id));if(id==="DOWN")this.at(fire,()=>this.down(fire,1.7,.23,id));if(id==="REVERSE")this.at(start,()=>this.reverse(start,BEAT,.29,id));if(id==="IMPACT")this.at(fire,()=>this.impact(fire,.38,id));if(id==="SWEEP")this.at(fire,()=>this.sweep(fire,.72,.24,id));
     this.at(start,()=>{if(this.state.running){this.patch(id,{status:"PLAYING",targetBar:bar+1});this.emit({message:`${id} PLAYING`});}});const end=id==="RISER"||id==="REVERSE"?fire+.12:id==="WASH"?fire+2.1:id==="DOWN"?fire+1.8:id==="IMPACT"?fire+1:fire+.82;this.at(end,()=>{if(this.state.running){this.patch(id,{status:"OFF",targetBar:null});this.emit({message:`${id} DONE`});}});}
-
-  private armVocal(){const bar=this.nextBoundary(8),when=this.timeForBar(bar);this.patch("VOCAL20",{status:"ARMED",targetBar:bar+1});this.at(when,()=>this.playVocal(bar));}
-  private playVocal(bar:number){const c=this.ctx,b=this.vocal;if(!c||!b||!this.state.running)return;this.stopVocal();const specBpm=131,sourceBar=(60/specBpm)*4,offset=.3084+32*sourceBar,dur=Math.min(8*sourceBar,b.duration-offset-.02),s=c.createBufferSource();s.buffer=b;s.playbackRate.setValueAtTime(BPM/specBpm,c.currentTime);s.connect(this.bus("VOCAL20"));s.start(c.currentTime+.004,offset,dur);this.vocalSource=s;this.patch("VOCAL20",{status:"PLAYING",targetBar:bar+9});this.emit({message:"VOCAL 20 FINGERS · 8 BAR"});this.at(c.currentTime+8*BAR,()=>{this.stopVocal();if(this.state.running)this.patch("VOCAL20",{status:"OFF",targetBar:null});});}
-  private stopVocal(){if(this.vocalSource){try{this.vocalSource.stop();}catch{}this.vocalSource=null;}}
 
   private scheduleAhead(){const c=this.ctx;if(!c||!this.state.running)return;const horizon=c.currentTime+.15;while(this.startAt+this.nextStep*STEP<horizon){const t=this.startAt+this.nextStep*STEP;if(t>=c.currentTime+.004)this.scheduleStep(this.nextStep,t);this.nextStep++;}}
   private scheduleStep(abs:number,t:number){const step=abs%16,bar=Math.floor(abs/16),phrase=bar%8;if(this.active("SHAKER",t)){if(step%2===1)this.shaker(t,.045,"SHAKER");if([2,6,10,14].includes(step))this.shaker(t,.06,"SHAKER");}if(this.active("GHOST",t)){if((phrase===1||phrase===5)&&step===15)this.ghost(t,.08,"GHOST");if(phrase===3&&step===7)this.ghost(t,.07,"GHOST");}if(this.active("RIDE",t)&&[2,6,10,14].includes(step))this.ride(t,phrase===6?.085:.068,"RIDE");if(this.active("STABS",t)&&([[2,10],[6],[2,14],[10],[2,6,14],[10],[2,10],[14]][phrase]??[]).includes(step))this.stab(t,bar,step===14?.11:.09,"STABS");if(this.active("ARP",t)&&[1,2,5,6].includes(phrase)&&[1,5,9,13].includes(step))this.arp(t,bar,step,phrase,.072,"ARP");if(this.active("TOMFILL",t)&&(phrase===3||phrase===7)&&[12,14,15].includes(step))this.tom(t,step===12?160:step===14?118:88,step===15?.12:.095,"TOMFILL");}
