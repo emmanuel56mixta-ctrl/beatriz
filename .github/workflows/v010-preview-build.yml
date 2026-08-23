@@ -3,6 +3,8 @@ name: Beatris v0.10 Preview Build
 on:
   push:
     branches: [beatris-v0.10-preview]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
