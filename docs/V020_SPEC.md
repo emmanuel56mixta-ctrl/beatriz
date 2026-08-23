@@ -8,7 +8,7 @@
 
 ## 1. Product rule
 
-Beatris v0.20 is **not a song player** and must not use the word **song/canción** in the v0.20 product copy.
+Beatris v0.20 is **not a background track player**.
 
 The goal is a playable House instrument whose groove remains recognizably House while player actions leave deterministic musical traces.
 
@@ -16,13 +16,15 @@ The goal is a playable House instrument whose groove remains recognizably House 
 
 The floor must survive gameplay.
 
-- Kick: four-on-the-floor, fixed on 1-2-3-4.
-- Clap: fixed on 2 and 4.
-- These anchors are not rewritten by piece locks.
+- Kick: four-on-the-floor, fixed on 1-2-3-4 during normal groove.
+- Clap: fixed on 2 and 4 during normal groove.
+- These anchors are not rewritten by ordinary piece locks.
 - Hats, ghosts, one optional extra kick and bass may vary every 1–2 bars.
 - Ground variation follows a small learnable form such as `A → A' → B → A'`.
 - Eight identical bars are forbidden.
 - Eight bars without the same recognizable skeleton are also forbidden.
+
+A TETRIS is the only current earned exception allowed to create a short, finite rupture in the skeleton. See section 12.
 
 ## 3. Lock grammar
 
@@ -76,7 +78,7 @@ The magnitude of the clear defines the musical response.
 | SINGLE | Accent only; e.g. one extra hit on the next 2. **Not a fill.** |
 | DOUBLE | Mini-fill, maximum half a bar. |
 | TRIPLE | Fill, maximum one bar. |
-| TETRIS | Phrase-level response; the only clear allowed to occupy the next 1. |
+| TETRIS | Phrase-level response and earned macro reward. |
 
 - The immediate lock tick still happens.
 - Clear responses are quantized to the next 16th or next beat as appropriate.
@@ -96,7 +98,7 @@ Height, holes, combo and danger may influence context, but they do not replace t
 Danger is a latch, not a raw threshold.
 
 1. Enter danger once.
-2. Run a finite build of 4 or 8 bars.
+2. Run a finite build of 4 bars.
 3. Settle into a stable tense groove and wait.
 4. Exit danger → clear release event.
 5. Do not re-enter danger build until danger has first been exited.
@@ -115,36 +117,33 @@ Beatris must behave like an instrument, not a generator.
 
 Two runs at the same height may sound different because they were played differently, but both must still sound like the same House instrument within four seconds.
 
-## 8. Demucs and previous architecture
+## 8. Previous architecture
 
-Demucs is **out** of the v0.20 core experiment.
+Separated full-track stems are **out as the playback engine**.
 
-- No separated song stems as the playback engine.
 - No `other` stem fader.
-- No raw 8-bar stem phrase loops.
-- No FOUNDATION/TENSION/DROP scene selector from previous experiments.
-- No song selector.
+- No raw 8-bar full-stem phrase loops.
+- No background track advancing under the board.
+- No selector of complete tracks in the core experiment.
 
-Demucs may return later only as a quarry for curated one-shots/chops/fills/timbres after the core passes acceptance.
+A separated source may only return as a **curated finite reward sample** explicitly earned by gameplay. It must not loop or become the floor.
 
 ## 9. Explicit non-goals
 
 v0.20 does **not** need to prove:
 
-- a complete song structure;
-- narrative drops;
+- a complete long-form structure;
 - multiple tracks;
 - remixes;
 - S/Z/J/L identity;
-- Demucs integration;
 - synchronized gravity;
-- adaptive soundtrack behavior.
+- arbitrary soundtrack adaptation.
 
 It must prove one thing: **the same House instrument, played differently.**
 
 ## 10. Freeze rule
 
-Do not add hooks, song scenes, extra piece languages, more tracks, more powers or richer orchestration until `V020_ACCEPTANCE.md` passes all required tests.
+Do not add extra piece languages, more tracks, more powers or richer orchestration until `V020_ACCEPTANCE.md` passes all required tests.
 
 ## 11. Progression axis — FROZEN ADDENDUM
 
@@ -155,7 +154,7 @@ Height and musical progress are opposite forces and must never be collapsed into
 - Stacking = risk/tension only. It never makes the groove richer.
 - Cleared rows = musical progress. The House skin improves and never rewinds.
 - Soft/hard drop score is small gameplay score only; it never unlocks arrangement.
-- Level (every 10 cleared rows) changes the deterministic ground variant `A → A' → B → A'` without changing the four-on-the-floor skeleton.
+- Level (every 10 cleared rows) changes the deterministic ground variant `A → A' → B → A'` without changing the normal four-on-the-floor skeleton.
 - Raw score must never map linearly to density.
 - Groove richness is capped. After FULL, later levels change variant rather than add more layers.
 
@@ -170,3 +169,19 @@ Clear progression for the core experiment:
 | TETRIS or ~10 lines | FULL/B variant; no further layer stacking |
 
 The clear response is the **door**: lock tick → quantized accent/fill → on the other side the floor is permanently a little better.
+
+## 12. Earned TETRIS macro reward — FROZEN ADDENDUM
+
+A four-line clear is allowed to create a deliberate rupture because it was earned by high-quality Tetris play.
+
+Current v0.20.1 rule:
+
+1. TETRIS clear → immediate quantized fill.
+2. Next musical bar → **one finite bar of AIR**; kick/clap/bass may drop out for this bar only.
+3. Following downbeat → crash + full House skeleton returns.
+4. A curated vocal spotlight plays for **10 bars at 124 BPM (~19.35 seconds)** over the instrument.
+5. The vocal is finite and must never loop.
+6. When it ends, Beatris returns to the normal instrument automatically.
+7. A second TETRIS while the vocal is live must not stack another vocal copy.
+
+This is an earned reward layer, not a background playback mode.
