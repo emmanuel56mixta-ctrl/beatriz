@@ -1,6 +1,6 @@
 # Beatris v0.20 — Acceptance Tests (FROZEN)
 
-All six tests are required. None is optional.
+All seven tests are required. None is optional.
 
 ## Test 1 — Lock is audible
 
@@ -65,6 +65,18 @@ Pass conditions:
 - danger does not become an infinite riser;
 - after ~60 seconds the result still feels like House, not a sound-effect generator.
 
+## Test 7 — Clears improve; stacking does not
+
+With eyes closed, two runs at similar height must reveal different musical progress if one player clears rows and the other merely stacks.
+
+Pass conditions:
+- stacking can increase tension but must never unlock richer arrangement;
+- cleared rows permanently improve the skin until the capped FULL state;
+- soft/hard drop score does not unlock skin;
+- after the fill/accent caused by a clear, the persistent floor on the other side is audibly richer;
+- later levels change `A → A' → B → A'` variants without changing kick 1-2-3-4 or clap 2/4;
+- a run with no clears remains musically lean even if the score rises from drops.
+
 # Experiment boundary
 
 Run the first v0.20 validation with:
@@ -80,4 +92,4 @@ Run the first v0.20 validation with:
 
 # Release gate
 
-**Do not expand v0.20 until all six tests pass in the same build.**
+**Do not expand v0.20 until all seven tests pass in the same build.**
