@@ -4,21 +4,22 @@ import { Session, type CoreHud } from "@/game/session";
 import { MiniPiece } from "@/components/game/MiniPiece";
 
 const SKINS=["SKELETON","HATS","BASS","OPEN","FULL"];
-const emptyHud:CoreHud={score:0,high:0,lines:0,level:1,combo:0,tetrises:0,bpm:124,bar:1,beat:1,step:0,boardHeight:0,skinStage:0,skinName:"SKELETON",section:"A",tension:"CALM",lastGesture:"READY",flash:null,momentum:0,nextMomentum:4,harmonyStage:0,harmonyName:"ROOT",instrumentTier:0,instrumentName:"RAW",hold:null,canHold:true,next:[]};
+const ROLES=["CHORDS","RESPONSE","MOTIF","COUNTER","ARP","HOOK"];
+const emptyHud:CoreHud={score:0,high:0,lines:0,level:1,combo:0,tetrises:0,bpm:124,bar:1,beat:1,step:0,boardHeight:0,skinStage:0,skinName:"SKELETON",section:"A",tension:"CALM",lastGesture:"READY",flash:null,momentum:0,nextMomentum:4,memoryCount:0,inventoryName:"FOUNDATION",instrumentTier:0,instrumentName:"RAW",lastRowSignature:"—",hold:null,canHold:true,next:[]};
 
 export function Beatris(){
   const canvasRef=useRef<HTMLCanvasElement>(null);const sessionRef=useRef<Session|null>(null);
-  const[mode,setMode]=useState<Session["mode"]>("title");const[hud,setHud]=useState<CoreHud>(emptyHud);const[muted,setMuted]=useState(false);const[volume,setVolume]=useState(0.72);
+  const[mode,setMode]=useState<Session["mode"]>("title");const[hud,setHud]=useState<CoreHud>(emptyHud);const[muted,setMuted]=useState(false);const[volume,setVolume]=useState(.72);
   const onHud=useCallback((h:CoreHud,m:Session["mode"])=>{setHud(h);setMode(m);},[]);
   useEffect(()=>{const canvas=canvasRef.current;if(!canvas)return;const s=new Session(canvas,onHud);sessionRef.current=s;s.attach();setHud(s.hud);return()=>{s.detach();sessionRef.current=null;};},[onHud]);
   const start=()=>void sessionRef.current?.enter();const toggleMute=()=>{const v=!muted;setMuted(v);sessionRef.current?.setMuted(v);};
   const press=(a:Parameters<Session["input"]["press"]>[0])=>sessionRef.current?.input.press(a);const release=(a:Parameters<Session["input"]["release"]>[0])=>sessionRef.current?.input.release(a);
   const heightPct=Math.min(100,hud.boardHeight/20*100);const nextSkin=[1,3,6,10][hud.skinStage]??null;
-  const momentumFloor=Math.floor(hud.momentum/4)*4;const momentumPct=Math.min(100,Math.max(0,(hud.momentum-momentumFloor)/4*100));
+  const memoryPct=Math.min(100,hud.memoryCount/6*100);const kitPct=hud.instrumentTier/3*100;
 
   return <main className="v20-shell">
     <header className="v20-top">
-      <div><div className="v20-kicker">BEATRIS // v0.20.3 CUMULATIVE HARMONY</div><h1>HOUSE INSTRUMENT</h1></div>
+      <div><div className="v20-kicker">BEATRIS // v0.20.4 BUILT MUSIC</div><h1>HOUSE INSTRUMENT</h1></div>
       <div className="v20-clock"><strong>{hud.bpm}</strong><span>BPM</span><b>BAR {hud.bar} · BEAT {hud.beat}</b></div>
       <button className="icon-btn" onClick={toggleMute} aria-label={muted?"Activar audio":"Silenciar"}>{muted?<VolumeX/>:<Volume2/>}</button>
     </header>
@@ -27,10 +28,10 @@ export function Beatris(){
       <aside className="v20-panel stats-panel">
         <p className="panel-title">PLAY</p>
         <div className="big-stat"><span>SCORE</span><strong>{String(hud.score).padStart(6,"0")}</strong></div>
-        <div className="stat-row"><span>LINES</span><b>{hud.lines}</b></div><div className="stat-row"><span>LEVEL</span><b>{hud.level}</b></div><div className="stat-row"><span>COMBO</span><b>{hud.combo}</b></div>
-        <div className="rule-card good"><b>CLEAR → PERMANENT HARMONY</b><small>Cada fila añade lenguaje armónico que se queda en el instrumento.</small></div>
-        <div className="rule-card good"><b>TRIPLE/TETRIS → NEW INSTRUMENT</b><small>3–4 filas de una vez cambian permanentemente kick, clap y bass.</small></div>
-        <div className="rule-card warn"><b>STACK → TENSION ONLY</b><small>Apilar aumenta presión; nunca desbloquea riqueza.</small></div>
+        <div className="stat-row"><span>LINES</span><b>{hud.lines}</b></div><div className="stat-row"><span>LEVEL</span><b>{hud.level}</b></div><div className="stat-row"><span>TETRIS</span><b>{hud.tetrises}</b></div>
+        <div className="rule-card good"><b>BUILD A ROW → WRITE MUSIC</b><small>La combinación real de piezas de la fila escribe ritmo, inversión y contorno. Esa frase se queda.</small></div>
+        <div className="rule-card good"><b>TETRIS → NEW BASE KIT</b><small>Solo 4 filas simultáneas cambian permanentemente RAW → DEEP → CLUB → PEAK.</small></div>
+        <div className="rule-card warn"><b>STACK → TENSION ONLY</b><small>La altura jamás desbloquea composición.</small></div>
         <label className="volume">VOLUME<input type="range" min="0" max="1" step="0.01" value={volume} onChange={e=>{const v=Number(e.target.value);setVolume(v);sessionRef.current?.setVolume(v);}}/></label>
       </aside>
 
@@ -38,7 +39,7 @@ export function Beatris(){
         <div className="v20-well">
           <canvas ref={canvasRef}/>
           {hud.flash&&mode==="playing"?<div className="event-flash">{hud.flash}</div>:null}
-          {mode==="title"?<div className="v20-overlay"><div className="start-card"><span>CUMULATIVE ARRANGEMENT</span><h2>BUILD THE MUSIC.</h2><p>La partida empieza flaca. Cada fila limpia añade acordes y melodía de forma permanente. Un TRIPLE/TETRIS además transforma el instrumento base. Nada se rebobina al bajar la pila.</p><button onClick={start}>START CORE</button><small>G#m → E → B → F# · same harmony · permanent evolution</small></div></div>:null}
+          {mode==="title"?<div className="v20-overlay"><div className="start-card"><span>CONSTRUCTION-DRIVEN COMPOSITION</span><h2>BUILD THE MUSIC.</h2><p>No hay desbloqueos automáticos por tiempo. Cada fila que construyes se convierte en una frase armónica persistente usando las piezas reales con las que la completaste. Un TETRIS cambia además el instrumento base.</p><button onClick={start}>START CORE</button><small>G#m → E → B → F# · row DNA → persistent phrase · TETRIS → new kit</small></div></div>:null}
           {mode==="paused"?<div className="v20-overlay"><div className="pause-card"><h2>PAUSED</h2><button onClick={()=>sessionRef.current?.resume()}><Play/> RESUME</button></div></div>:null}
           {mode==="over"?<div className="v20-overlay"><div className="pause-card"><h2>SET OVER</h2><strong>{hud.score}</strong><button onClick={()=>sessionRef.current?.restart()}>RUN AGAIN</button></div></div>:null}
         </div>
@@ -53,19 +54,26 @@ export function Beatris(){
       </section>
 
       <aside className="v20-panel music-panel">
-        <p className="panel-title">CUMULATIVE STATE</p>
-        <div className="gesture"><span>LAST GESTURE</span><strong>{hud.lastGesture}</strong></div>
-        <section className="momentum"><header><span>HARMONY</span><b>H{hud.harmonyStage} · {hud.harmonyName}</b></header><div className="momentum-bar"><i style={{width:`${hud.harmonyStage/5*100}%`}}/></div><small>1 fila = primer acorde · 2 = respuesta · 3 = progresión · 5 = extensiones · 8 = melodía completa. Nunca baja.</small></section>
-        <section className="momentum"><header><span>BASE INSTRUMENT</span><b>T{hud.instrumentTier} · {hud.instrumentName}</b></header><div className="momentum-bar"><i style={{width:`${hud.instrumentTier/3*100}%`}}/></div><small>TRIPLE/TETRIS evolucionan permanentemente el timbre del kick, clap, bass y percusión.</small></section>
-        <section className="momentum"><header><span>MOMENTUM</span><b>{hud.momentum.toFixed(1)} → {hud.nextMomentum}</b></header><div className="momentum-bar"><i style={{width:`${momentumPct}%`}}/></div><small>Memoria del desempeño; los grandes clears aceleran la evolución.</small></section>
-        <section className="skin"><header><span>SKIN</span><b>{hud.section} · {hud.skinName}</b></header><div className="skin-steps">{SKINS.map((s,i)=><i key={s} className={i<=hud.skinStage?"on":""} title={s}/>)}</div><small>{nextSkin?`Siguiente apertura rítmica: ${nextSkin} líneas o un clear grande.`:"FULL: desde aquí cambia el voicing/timbre, no se forma un muro de capas."}</small></section>
-        <section className="tension"><header><span>TENSION</span><b className={`state-${hud.tension.toLowerCase()}`}>{hud.tension}</b></header><div className="heightbar"><i style={{width:`${heightPct}%`}}/></div><small>{hud.boardHeight}/20 filas · altura = presión, nunca progreso musical.</small></section>
-        <div className="grammar"><div><b>1 LINE</b><span>+ CHORD LANGUAGE</span></div><div><b>2 LINES</b><span>+ RESPONSE</span></div><div><b>3+ AT ONCE</b><span>BASE INSTRUMENT EVOLVES</span></div><div><b>5+ TOTAL</b><span>7TH/9TH + TOP NOTES</span></div><div><b>TETRIS</b><span>AIR → VOCAL ~20 s + EVOLUTION</span></div></div>
+        <p className="panel-title">WHAT YOU HAVE BUILT</p>
+        <div className="gesture"><span>LAST MUSICAL EVENT</span><strong>{hud.lastGesture}</strong></div>
+
+        <section className="momentum"><header><span>MUSIC MEMORY</span><b>{hud.memoryCount} ROW{hud.memoryCount===1?"":"S"} · {hud.inventoryName}</b></header><div className="momentum-bar"><i style={{width:`${memoryPct}%`}}/></div><small>Cada fila completada añade una frase. No desaparece con el siguiente compás.</small></section>
+
+        <section className="momentum"><header><span>LAST ROW DNA</span><b>{hud.lastRowSignature}</b></header><div className="skin-steps">{ROLES.map((r,i)=><i key={r} className={i<Math.min(6,hud.memoryCount)?"on":""} title={r}/>)}</div><small>{ROLES.map((r,i)=>`${i+1}:${r}`).join(" · ")}</small></section>
+
+        <section className="momentum"><header><span>BASE KIT</span><b>T{hud.instrumentTier} · {hud.instrumentName}</b></header><div className="momentum-bar"><i style={{width:`${kitPct}%`}}/></div><small>Cada TETRIS cambia permanentemente kick, clap, bass y percusión. No lo hace un TRIPLE ni la altura.</small></section>
+
+        <section className="skin"><header><span>RHYTHM SKIN</span><b>{hud.section} · {hud.skinName}</b></header><div className="skin-steps">{SKINS.map((s,i)=><i key={s} className={i<=hud.skinStage?"on":""} title={s}/>)}</div><small>{nextSkin?"También se densifica al construir y limpiar; nunca por esperar.":"FULL: el arreglo usa las frases construidas en distintos compases, no todas a la vez."}</small></section>
+
+        <section className="tension"><header><span>TENSION</span><b className={`state-${hud.tension.toLowerCase()}`}>{hud.tension}</b></header><div className="heightbar"><i style={{width:`${heightPct}%`}}/></div><small>{hud.boardHeight}/20 filas · altura = presión únicamente.</small></section>
+
+        <div className="grammar"><div><b>ROW 1</b><span>ITS DNA → CHORDS</span></div><div><b>ROW 2</b><span>ITS DNA → RESPONSE</span></div><div><b>ROW 3</b><span>ITS DNA → MOTIF</span></div><div><b>ROW 4</b><span>ITS DNA → COUNTER</span></div><div><b>ROW 5</b><span>ITS DNA → ARP</span></div><div><b>ROW 6</b><span>ITS DNA → HOOK</span></div><div><b>TETRIS</b><span>4 PHRASES + NEW KIT + VOCAL</span></div></div>
+
         <section className="queue"><div><span>HOLD</span>{hud.hold?<MiniPiece type={hud.hold} cell={7}/>:<em>—</em>}</div><div><span>NEXT</span><div className="next-list">{hud.next.slice(0,3).map((p,i)=><MiniPiece key={`${p}-${i}`} type={p} cell={i===0?7:5}/>)}</div></div></section>
       </aside>
     </section>
 
-    <footer className="v20-tests"><span>LOCK</span><span>I ≠ T</span><span>HARD @1 ≠ OFF</span><span>CLEAR = PERMANENT HARMONY</span><span>TRIPLE = INSTRUMENT EVOLUTION</span><span>HEAD-NOD</span><span>STACK ≠ PROGRESS</span><span>ONE HARMONIC WORLD</span></footer>
+    <footer className="v20-tests"><span>NO AUTO UNLOCKS</span><span>ROW DNA = MUSIC</span><span>CLEARS ACCUMULATE</span><span>TETRIS = NEW KIT</span><span>I ≠ T</span><span>HARD @1 ≠ OFF</span><span>HEAD-NOD</span><span>ONE HARMONIC WORLD</span></footer>
   </main>;
 }
 
