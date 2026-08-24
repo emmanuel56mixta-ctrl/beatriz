@@ -1,6 +1,5 @@
-import { unzip } from "fflate";
 import { DEFAULT_MIX, filterWindow, resonanceQ, type MixParams } from "./mixTypesV308";
-import { EXTERNAL_ROLES, RHYTHM_ROLES, externalSet, type ExternalRole, type ExternalSetId, type ExternalSetSource } from "./externalSetsV310";
+import { EXTERNAL_ROLES, externalSet, type ExternalRole, type ExternalSetId, type ExternalStemRef } from "./externalSetsV310";
 
 export type ExternalChannelStatus = "OFF" | "ARMED" | "ON" | "EXIT";
 export type ExternalChannelRuntime = { status: ExternalChannelStatus; targetBar: number | null; count: number };
@@ -18,132 +17,68 @@ export type ExternalSetState = {
 };
 
 type Bus = { hpf: BiquadFilterNode; lpf: BiquadFilterNode; gain: GainNode };
-type TrackBuffer = { buffer: AudioBuffer; bpm: number; beatZero: number; support: boolean; name: string };
+type TrackBuffer = { buffer: AudioBuffer; bpm: number; loopStart: number; role: ExternalRole; name: string };
 type Handle = { source: AudioBufferSourceNode };
 
 const TARGET_BPM = 124;
 const BEAT = 60 / TARGET_BPM;
 const BAR = BEAT * 4;
-const RHYTHM = new Set<ExternalRole>(["KICK", "SNARE", "HATS", "PERC", "FX"]);
-
-// The edited Cambridge ZIPs are still large once expanded. Beatris only needs a
-// small curated cell pool, not every multitrack in the archive.
-const LIMITS: Record<ExternalRole, number> = { KICK: 1, SNARE: 1, HATS: 1, PERC: 1, BASS: 1, MUSIC: 2, VOCAL: 1, FX: 1 };
-const SUPPORT_LIMITS: Record<ExternalRole, number> = { KICK: 1, SNARE: 1, HATS: 1, PERC: 1, BASS: 0, MUSIC: 0, VOCAL: 0, FX: 1 };
-const MAX_ZIP_BYTES = 90 * 1024 * 1024;
-const MAX_WAV_BYTES = 36 * 1024 * 1024;
-const DOWNLOAD_TIMEOUT_MS = 45_000;
+const PHRASE = BAR * 4;
+const DOWNLOAD_TIMEOUT_MS = 20_000;
+const CDN_BASE = "https://cdn.jsdelivr.net/gh/ichbinsoftware/everythingisfree@main/src/2.Lithium/";
+const RAW_BASE = "https://raw.githubusercontent.com/ichbinsoftware/everythingisfree/main/src/2.Lithium/";
 
 const blankChannels = (): Record<ExternalRole, ExternalChannelRuntime> => Object.fromEntries(
   EXTERNAL_ROLES.map(({ id }) => [id, { status: "OFF", targetBar: null, count: 0 }]),
 ) as Record<ExternalRole, ExternalChannelRuntime>;
 
-function classify(name: string): ExternalRole {
-  const n = name.toLowerCase().replace(/[_\-.]+/g, " ");
-  if (/kick|bass drum|bassdrum|\bbd\b/.test(n)) return "KICK";
-  if (/snare|clap|rim|snap/.test(n)) return "SNARE";
-  if (/hi ?hat|hihat|hat\b|cymbal|ride|crash|overhead|\boh\b/.test(n)) return "HATS";
-  if (/\bfx\b|effect|noise|sweep|riser|impact|reverse|transition|whoosh/.test(n)) return "FX";
-  if (/sub ?bass|\bbass\b|bass synth|bassline/.test(n)) return "BASS";
-  if (/vocal|vox|voice|\bbv\b|backing voc|lead voc/.test(n)) return "VOCAL";
-  if (/perc|tom|shaker|tamb|conga|bongo|drum|loop|beat/.test(n)) return "PERC";
-  return "MUSIC";
+function stemUrl(base: string, file: string) {
+  return `${base}${encodeURIComponent(file)}`;
 }
 
-function skipFile(name: string) {
-  const n = name.toLowerCase();
-  return n.includes("__macosx") || /(^|[/ _-])(mix|master|preview|reference|rough mix)([/ _.-]|$)/.test(n);
-}
-
-function estimateBpm(buffer: AudioBuffer) {
+function windowEnergy(buffer: AudioBuffer, start: number, duration = PHRASE) {
   const data = buffer.getChannelData(0);
-  const hop = 1024;
-  const frames = Math.min(Math.floor(data.length / hop), Math.floor((buffer.sampleRate * 30) / hop));
-  if (frames < 40) return 124;
-  const env = new Float32Array(frames);
-  for (let i = 0; i < frames; i++) {
-    let sum = 0;
-    const from = i * hop;
-    const to = Math.min(data.length, from + hop);
-    for (let j = from; j < to; j += 4) sum += Math.abs(data[j]!);
-    env[i] = sum / Math.max(1, (to - from) / 4);
-  }
-  const onset = new Float32Array(frames);
-  for (let i = 1; i < frames; i++) onset[i] = Math.max(0, env[i]! - env[i - 1]! * 0.92);
-  const fps = buffer.sampleRate / hop;
-  let bestBpm = 124;
-  let bestScore = -Infinity;
-  for (let bpm = 85; bpm <= 175; bpm += 0.5) {
-    const lag = Math.max(1, Math.round((60 * fps) / bpm));
-    let score = 0;
-    for (let i = lag; i < frames; i++) score += onset[i]! * onset[i - lag]!;
-    const houseBias = 0.88 + 0.12 * Math.max(0, 1 - Math.abs(bpm - 126) / 70);
-    score *= houseBias;
-    if (score > bestScore) { bestScore = score; bestBpm = bpm; }
-  }
-  return Math.round(bestBpm * 10) / 10;
+  const from = Math.max(0, Math.floor(start * buffer.sampleRate));
+  const to = Math.min(data.length, Math.floor((start + duration) * buffer.sampleRate));
+  if (to <= from) return 0;
+  const step = 2048;
+  let sum = 0, count = 0;
+  for (let i = from; i < to; i += step) { const v = data[i] ?? 0; sum += v * v; count++; }
+  return count ? Math.sqrt(sum / count) : 0;
 }
 
-function estimateBeatZero(buffer: AudioBuffer) {
-  const data = buffer.getChannelData(0);
-  const hop = 512;
-  const frames = Math.min(Math.floor(data.length / hop), Math.floor((buffer.sampleRate * 10) / hop));
-  if (frames < 8) return 0;
-  const novelty = new Float32Array(frames);
-  let previous = 0;
-  let max = 0;
-  for (let i = 0; i < frames; i++) {
-    let sum = 0;
-    const from = i * hop;
-    const to = Math.min(data.length, from + hop);
-    for (let j = from; j < to; j += 4) sum += Math.abs(data[j]!);
-    const energy = sum / Math.max(1, (to - from) / 4);
-    const value = Math.max(0, energy - previous * 0.9);
-    novelty[i] = value;
-    max = Math.max(max, value);
-    previous = energy;
+function bestWindow(buffer: AudioBuffer) {
+  const phrases = Math.max(1, Math.floor(buffer.duration / PHRASE));
+  let best = 0, bestScore = -1;
+  for (let p = 0; p < phrases; p++) {
+    const start = p * PHRASE;
+    if (start + PHRASE > buffer.duration - 0.05) break;
+    const score = windowEnergy(buffer, start);
+    if (score > bestScore) { bestScore = score; best = start; }
   }
-  const threshold = max * 0.58;
-  for (let i = 2; i < frames - 2; i++) {
-    if (novelty[i]! >= threshold && novelty[i]! >= novelty[i - 1]! && novelty[i]! >= novelty[i + 1]!) {
-      return (i * hop) / buffer.sampleRate;
-    }
-  }
-  return 0;
+  return best;
 }
 
-function yieldUi() {
-  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-}
-
-function unzipCurated(compressed: Uint8Array, source: ExternalSetSource) {
-  const used = new Map<ExternalRole, number>();
-  EXTERNAL_ROLES.forEach(({ id }) => used.set(id, 0));
-  const limits = source.support ? SUPPORT_LIMITS : LIMITS;
-
-  return new Promise<Record<string, Uint8Array>>((resolve, reject) => {
-    unzip(
-      compressed,
-      {
-        filter(file) {
-          const name = file.name;
-          if (!/\.wav$/i.test(name) || skipFile(name)) return false;
-          if (file.originalSize > MAX_WAV_BYTES) return false;
-          const role = classify(name);
-          if (source.support && !RHYTHM_ROLES.has(role)) return false;
-          const current = used.get(role) ?? 0;
-          const limit = limits[role];
-          if (current >= limit) return false;
-          used.set(role, current + 1);
-          return true;
-        },
-      },
-      (error, archive) => {
-        if (error) reject(error);
-        else resolve(archive as Record<string, Uint8Array>);
-      },
-    );
+function sharedWindow(tracks: TrackBuffer[]) {
+  const usable = tracks.filter((t) => ["KICK", "HATS", "PERC", "BASS", "MUSIC"].includes(t.role));
+  if (!usable.length) return 0;
+  const phrases = Math.max(1, Math.min(...usable.map((t) => Math.floor(t.buffer.duration / PHRASE))));
+  const energies = usable.map((track) => {
+    const values: number[] = [];
+    for (let p = 0; p < phrases; p++) values.push(windowEnergy(track.buffer, p * PHRASE));
+    const max = Math.max(0.000001, ...values);
+    return { track, values: values.map((v) => v / max) };
   });
+  let bestPhrase = 0, bestScore = -1;
+  for (let p = 0; p < phrases; p++) {
+    let score = 0;
+    for (const item of energies) {
+      const weight = item.track.role === "MUSIC" || item.track.role === "BASS" ? 1.35 : item.track.role === "PERC" ? 1.0 : 0.72;
+      score += (item.values[p] ?? 0) * weight;
+    }
+    if (score > bestScore) { bestScore = score; bestPhrase = p; }
+  }
+  return bestPhrase * PHRASE;
 }
 
 export class CambridgeSetMixerV310 {
@@ -162,6 +97,7 @@ export class CambridgeSetMixerV310 {
   private onState: (state: ExternalSetState) => void;
   private loadToken = 0;
   private downloadControllers = new Set<AbortController>();
+  private decodedCache = new Map<string, AudioBuffer>();
 
   state: ExternalSetState = {
     ready: false, loading: false, running: false, setId: null, sourceBpm: 124,
@@ -184,7 +120,7 @@ export class CambridgeSetMixerV310 {
   }
 
   private async ensureContext() {
-    if (this.ctx) return;
+    if (this.ctx) { await this.ctx.resume(); return; }
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) throw new Error("Web Audio no disponible");
     const ctx = new Ctor({ latencyHint: "interactive" });
@@ -236,6 +172,12 @@ export class CambridgeSetMixerV310 {
     this.downloadControllers.clear();
   }
 
+  private channelCounts() {
+    const channels = blankChannels();
+    EXTERNAL_ROLES.forEach(({ id }) => { channels[id].count = this.tracks.get(id)?.length ?? 0; });
+    return channels;
+  }
+
   async loadSet(id: ExternalSetId) {
     if (this.state.setId === id && this.state.ready) return;
     this.abortDownloads();
@@ -244,123 +186,67 @@ export class CambridgeSetMixerV310 {
     await this.ensureContext();
     this.tracks.clear();
     EXTERNAL_ROLES.forEach(({ id: role }) => this.tracks.set(role, []));
-    this.emit({ loading: true, ready: false, setId: id, error: null, message: `LOADING ${externalSet(id).label}…`, channels: blankChannels() });
+    const set = externalSet(id);
+    this.emit({ loading: true, ready: false, setId: id, sourceBpm: set.bpm, error: null, message: `LOADING ${set.label}…`, channels: blankChannels() });
 
     try {
-      const set = externalSet(id);
-      const primary = set.sources.find((source) => !source.support) ?? set.sources[0];
-      if (!primary) throw new Error("Set without source");
-      const primaryBpm = await this.loadSource(primary, token);
+      const loaded: TrackBuffer[] = [];
+      let done = 0;
+      const jobs = set.stems.map(async (stem) => {
+        const buffer = await this.loadStem(stem, token);
+        done++;
+        if (token === this.loadToken) this.emit({ message: `LOADING ${set.label} · ${done}/${set.stems.length}` });
+        return { buffer, bpm: set.bpm, loopStart: 0, role: stem.role, name: stem.label } as TrackBuffer;
+      });
+      const results = await Promise.allSettled(jobs);
       if (token !== this.loadToken) return;
+      results.forEach((result) => { if (result.status === "fulfilled") loaded.push(result.value); });
+      if (!loaded.length) throw new Error("No se pudo descargar ningún stem");
 
-      const channels = this.channelCounts();
-      this.emit({
-        loading: false,
-        ready: true,
-        sourceBpm: primaryBpm,
-        channels,
-        message: `${set.label} READY · ${primaryBpm.toFixed(1)} → 124 BPM`,
+      const common = sharedWindow(loaded);
+      loaded.forEach((track) => {
+        track.loopStart = track.role === "VOCAL" || track.role === "FX" || track.role === "SNARE" ? bestWindow(track.buffer) : common;
+        const maxStart = Math.max(0, track.buffer.duration - PHRASE - 0.04);
+        track.loopStart = Math.min(track.loopStart, maxStart);
+        this.tracks.get(track.role)!.push(track);
       });
 
-      // Extra percussion/FX arrive after the playable primary set is already ready.
-      const support = set.sources.filter((source) => source.support);
-      if (support.length) void this.loadSupportSources(id, support, token, primaryBpm);
+      const channels = this.channelCounts();
+      this.emit({ loading: false, ready: true, sourceBpm: set.bpm, channels, message: `${set.label} READY · ${set.bpm} BPM · ${set.key}` });
     } catch (error) {
       if (token !== this.loadToken) return;
-      const message = error instanceof DOMException && error.name === "AbortError"
-        ? "Carga cancelada"
-        : error instanceof Error ? error.message : "No se pudo cargar el set externo";
+      const message = error instanceof DOMException && error.name === "AbortError" ? "Carga cancelada" : error instanceof Error ? error.message : "No se pudo cargar el set";
       this.emit({ loading: false, ready: false, error: message, message });
     }
   }
 
-  private channelCounts() {
-    const channels = blankChannels();
-    EXTERNAL_ROLES.forEach(({ id: role }) => { channels[role].count = this.tracks.get(role)?.length ?? 0; });
-    return channels;
-  }
-
-  private async loadSupportSources(id: ExternalSetId, sources: ExternalSetSource[], token: number, primaryBpm: number) {
-    for (const source of sources) {
-      if (token !== this.loadToken || this.state.setId !== id) return;
+  private async loadStem(stem: ExternalStemRef, token: number) {
+    const cached = this.decodedCache.get(stem.file);
+    if (cached) return cached;
+    if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
+    const urls = [stemUrl(CDN_BASE, stem.file), stemUrl(RAW_BASE, stem.file)];
+    let lastError: unknown = null;
+    for (const url of urls) {
+      const controller = new AbortController();
+      this.downloadControllers.add(controller);
+      const timeout = window.setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
       try {
-        await this.loadSource(source, token);
-        if (token !== this.loadToken || this.state.setId !== id) return;
-        const set = externalSet(id);
-        this.emit({
-          channels: this.channelCounts(),
-          sourceBpm: primaryBpm,
-          message: `${set.label} READY · + ${source.title.toUpperCase()} RHYTHM`,
-        });
+        const response = await fetch(url, { cache: "force-cache", signal: controller.signal, mode: "cors" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const bytes = await response.arrayBuffer();
+        if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
+        const buffer = await this.ctx!.decodeAudioData(bytes.slice(0));
+        this.decodedCache.set(stem.file, buffer);
+        return buffer;
       } catch (error) {
-        if (token !== this.loadToken) return;
-        console.warn("Support multitrack skipped", source.id, error);
+        lastError = error;
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
+      } finally {
+        window.clearTimeout(timeout);
+        this.downloadControllers.delete(controller);
       }
     }
-  }
-
-  private async loadSource(source: ExternalSetSource, token: number) {
-    if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
-    this.emit({ message: `DOWNLOADING ${source.artist} · ${source.title}…` });
-
-    const controller = new AbortController();
-    this.downloadControllers.add(controller);
-    const timeout = window.setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch(`/api/cambridge?id=${encodeURIComponent(source.id)}`, {
-        cache: "force-cache",
-        signal: controller.signal,
-      });
-    } finally {
-      window.clearTimeout(timeout);
-      this.downloadControllers.delete(controller);
-    }
-
-    if (!response.ok) throw new Error(`${source.artist} · ${source.title} (${response.status})`);
-    const length = Number(response.headers.get("content-length") || 0);
-    if (length > MAX_ZIP_BYTES) throw new Error(`${source.title}: ZIP demasiado grande para preview`);
-
-    const compressed = new Uint8Array(await response.arrayBuffer());
-    if (compressed.byteLength > MAX_ZIP_BYTES) throw new Error(`${source.title}: ZIP demasiado grande para preview`);
-    if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
-
-    this.emit({ message: `EXTRACTING ${source.artist} · ${source.title}…` });
-    await yieldUi();
-    const archive = await unzipCurated(compressed, source);
-    if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
-
-    const decoded = new Map<ExternalRole, { name: string; buffer: AudioBuffer }[]>();
-    EXTERNAL_ROLES.forEach(({ id }) => decoded.set(id, []));
-    const entries = Object.entries(archive).filter(([name]) => /\.wav$/i.test(name) && !skipFile(name));
-
-    for (let index = 0; index < entries.length; index++) {
-      const [name, bytes] = entries[index]!;
-      if (token !== this.loadToken) throw new DOMException("Cancelled", "AbortError");
-      const role = classify(name);
-      if (source.support && !RHYTHM_ROLES.has(role)) continue;
-      this.emit({ message: `DECODING ${source.title.toUpperCase()} · ${index + 1}/${entries.length}` });
-      try {
-        const copy = bytes.slice().buffer as ArrayBuffer;
-        const buffer = await this.ctx!.decodeAudioData(copy);
-        decoded.get(role)!.push({ name, buffer });
-      } catch {
-        console.warn("Skipping undecodable multitrack", name);
-      }
-      await yieldUi();
-    }
-
-    const timing = decoded.get("KICK")?.[0]?.buffer ?? decoded.get("PERC")?.[0]?.buffer ?? decoded.get("HATS")?.[0]?.buffer ?? decoded.get("BASS")?.[0]?.buffer ?? decoded.get("MUSIC")?.[0]?.buffer;
-    if (!timing) throw new Error(`${source.artist} · ${source.title}: no WAV tracks detected`);
-    const bpm = estimateBpm(timing);
-    const beatZero = estimateBeatZero(timing);
-
-    for (const { id: role } of EXTERNAL_ROLES) {
-      for (const item of decoded.get(role)!) {
-        this.tracks.get(role)!.push({ buffer: item.buffer, bpm, beatZero, support: Boolean(source.support), name: item.name });
-      }
-    }
-    return bpm;
+    throw new Error(`${stem.label}: ${lastError instanceof Error ? lastError.message : "download failed"}`);
   }
 
   async start() {
@@ -389,7 +275,16 @@ export class CambridgeSetMixerV310 {
     }
   }
 
-  dispose() { this.abortDownloads(); this.loadToken++; this.stop(); void this.ctx?.close(); this.ctx = null; this.tracks.clear(); this.buses.clear(); }
+  dispose() {
+    this.abortDownloads();
+    this.loadToken++;
+    this.stop();
+    void this.ctx?.close();
+    this.ctx = null;
+    this.tracks.clear();
+    this.buses.clear();
+    this.decodedCache.clear();
+  }
 
   toggle(id: ExternalRole) {
     if (!this.ctx || !this.state.running || !this.state.channels[id].count) return;
@@ -422,26 +317,18 @@ export class CambridgeSetMixerV310 {
     bus.gain.gain.cancelScheduledValues(when);
     bus.gain.gain.setValueAtTime(0.0001, Math.max(this.ctx!.currentTime, when - 0.02));
     bus.gain.gain.linearRampToValueAtTime(mix.gain, when + 0.08);
-    const handles = list.map((track) => this.startTrack(track, id, when));
-    this.handles.set(id, handles);
+    this.handles.set(id, list.map((track) => this.startTrack(track, id, when)));
   }
 
   private startTrack(track: TrackBuffer, role: ExternalRole, when: number): Handle {
-    const ctx = this.ctx!;
-    const source = ctx.createBufferSource();
+    const source = this.ctx!.createBufferSource();
     source.buffer = track.buffer;
-    const sourceBar = (60 / track.bpm) * 4;
-    const needed = sourceBar * 4;
-    let loopStart = track.beatZero + sourceBar * 4;
-    if (loopStart + needed >= track.buffer.duration - 0.03) loopStart = track.beatZero;
-    if (loopStart + needed >= track.buffer.duration - 0.03) loopStart = Math.max(0, track.buffer.duration - needed - 0.03);
-    const loopEnd = Math.min(track.buffer.duration - 0.02, loopStart + needed);
     source.playbackRate.setValueAtTime(TARGET_BPM / track.bpm, when);
     source.loop = true;
-    source.loopStart = loopStart;
-    source.loopEnd = Math.max(loopStart + 0.25, loopEnd);
+    source.loopStart = track.loopStart;
+    source.loopEnd = Math.min(track.buffer.duration - 0.02, track.loopStart + PHRASE);
     source.connect(this.buses.get(role)!.hpf);
-    source.start(when, loopStart);
+    source.start(when, track.loopStart);
     return { source };
   }
 
