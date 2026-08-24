@@ -3,35 +3,17 @@ export const VISIBLE_ROWS = 20;
 export const HIDDEN_ROWS = 0;
 export const ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 export const SEQUENCE_STEPS = 16;
-export const BPM = 125;
+export const BPM = 124;
 
 export type PieceId = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
-
 export type TraitId = "bass" | "harmony" | "hook" | "groove" | "perc" | "space" | "drive";
-
 export type Arrangement = "intro" | "groove" | "build" | "break" | "drop";
 
-export type Cell = {
-  type: PieceId;
-  lockedAt: number;
-};
-
-export type ActivePiece = {
-  type: PieceId;
-  x: number;
-  y: number;
-  rot: number;
-  lastKick: number;
-};
+export type Cell = { type: PieceId; lockedAt: number };
+export type ActivePiece = { type: PieceId; x: number; y: number; rot: number; lastKick: number };
 
 export type GameEvent =
-  | {
-      kind: "lock";
-      piece: PieceId;
-      onBeat: boolean;
-      onTheOne: boolean;
-      tspin: boolean;
-    }
+  | { kind: "lock"; piece: PieceId; onBeat: boolean; onTheOne: boolean; tspin: boolean }
   | {
       kind: "clear";
       lines: number;
@@ -40,6 +22,8 @@ export type GameEvent =
       tspin: boolean;
       b2b: boolean;
       clearedRows: number[];
+      /** Piece sequence across every completed row, left-to-right, captured before deletion. */
+      rowPatterns?: PieceId[][];
     }
   | { kind: "spawn"; piece: PieceId }
   | { kind: "hold"; piece: PieceId }
@@ -49,12 +33,7 @@ export type GameEvent =
   | { kind: "softdrop" }
   | { kind: "gameover" };
 
-export type MixCell = {
-  col: number;
-  step: number;
-  type: PieceId;
-};
-
+export type MixCell = { col: number; step: number; type: PieceId };
 export type MixState = {
   stackHeight: number;
   counts: Record<PieceId, number>;
@@ -81,13 +60,7 @@ export type Snapshot = {
   b2b: boolean;
 };
 
-export type Production = {
-  gain: number;
-  filter: number;
-  room: number;
-  delay: number;
-};
-
+export type Production = { gain: number; filter: number; room: number; delay: number };
 export type VisualClock = {
   step: number;
   frac: number;
