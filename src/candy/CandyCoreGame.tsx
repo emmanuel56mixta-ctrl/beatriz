@@ -171,9 +171,10 @@ export function CandyCoreGame() {
       for (const group of found) {
         let preserve: Pos | null = null;
         if (group.cells.length >= 4) {
-          preserve = preferred && group.cells.some((p) => same(p, preferred)) ? preferred : group.cells[Math.floor(group.cells.length / 2)]!;
+          const chosen: Pos = preferred && group.cells.some((p) => same(p, preferred)) ? preferred : group.cells[Math.floor(group.cells.length / 2)]!;
+          preserve = chosen;
           const special: Special = group.cells.length >= 5 ? "bomb" : group.axis === "row" ? "row" : "col";
-          keep.set(key(preserve), newTile(group.gem, special));
+          keep.set(key(chosen), newTile(group.gem, special));
         }
         for (const p of group.cells) if (!preserve || !same(p, preserve)) clear.add(key(p));
       }
