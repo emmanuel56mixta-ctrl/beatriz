@@ -21,7 +21,7 @@ const GEM_INFO: Record<Gem, { label: string; note: string }> = {
 let tileId = 1;
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 const key = ({ r, c }: Pos) => `${r}:${c}`;
-const same = (a: Pos, b: Pos) => a.r === b.r && a.c === b.c;
+const same = (a: Pos, b: Pos | null) => Boolean(b && a.r === b.r && a.c === b.c);
 const adjacent = (a: Pos, b: Pos) => Math.abs(a.r - b.r) + Math.abs(a.c - b.c) === 1;
 const cloneBoard = (board: Board): Board => board.map((row) => row.slice());
 const randomGem = () => GEMS[Math.floor(Math.random() * GEMS.length)]!;
