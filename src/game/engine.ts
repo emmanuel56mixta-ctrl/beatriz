@@ -315,6 +315,12 @@ export class TetrisEngine {
     if (full.length === 0) {
       this.combo = -1;
     } else {
+      // Capture the exact left-to-right tetromino construction BEFORE rows vanish.
+      // Audio v0.20.4 uses this as deterministic musical DNA.
+      const rowPatterns: PieceId[][] = full.map((y) =>
+        this.grid[y]!.map((cell) => cell!.type),
+      );
+
       this.combo += 1;
       this.maxCombo = Math.max(this.maxCombo, Math.max(0, this.combo));
       const kept = this.grid.filter((_, y) => !full.includes(y));
@@ -343,6 +349,7 @@ export class TetrisEngine {
         tspin,
         b2b,
         clearedRows: full,
+        rowPatterns,
       });
     }
 

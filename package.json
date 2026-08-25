@@ -1,13 +1,11 @@
 {
   "name": "beatris",
-  "version": "0.7.0",
+  "version": "0.30.0",
   "private": true,
   "type": "module",
-  "description": "Tetris house: el beat no se toca. El pozo escribe la siguiente frase.",
+  "description": "Beatris v0.30 Audio First Musical Cells Lab.",
   "license": "MIT",
-  "engines": {
-    "node": ">=20"
-  },
+  "engines": { "node": ">=20" },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -15,8 +13,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vercel/blob": "2.8.0",
+    "animejs": "4.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
     "lucide-react": "^0.510.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
